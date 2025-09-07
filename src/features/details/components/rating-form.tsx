@@ -2,12 +2,7 @@ import type { MediaDetails } from '@/types/details';
 
 import { useEffect, useRef, useState } from 'react';
 
-import {
-  QueryClient,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -29,19 +24,7 @@ type Review = {
 
 async function submitReviewToServer(qc: QueryClient, values: Review) {
   const { mediaType, mediaId, rating } = values;
-
-  const response = await addReview(mediaType, mediaId, rating, qc);
-
-  if (!response) {
-    toast.error('Failed to connect to server! Please try again later');
-    console.error('Unexpected error while adding review:', response);
-    return;
-  }
-
-  if (response.error) {
-    toast.error('Failed to save review. Please try again later');
-    return;
-  }
+  await addReview(mediaType, mediaId, rating, qc);
 }
 
 export default function RatingForm({ media }: Record<'media', MediaDetails>) {
@@ -57,8 +40,7 @@ export default function RatingForm({ media }: Record<'media', MediaDetails>) {
   const { data: averageData } = useQuery({
     queryKey: ['average-rating', media.mediaType, media.id],
     queryFn: async () => {
-      const data = await getAvgRating(media.mediaType, media.id);
-      return data;
+      return getAvgRating(media.mediaType, media.id);
     },
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
@@ -113,11 +95,7 @@ export default function RatingForm({ media }: Record<'media', MediaDetails>) {
 
   useEffect(() => {
     if (averageData) {
-      if (averageData.error) {
-        toast.error(averageData.error.message);
-        return;
-      }
-      setStoredRating(averageData.data);
+      setStoredRating(averageData);
     }
     return () => setStoredRating({ avgRating: null, reviewCount: 0 });
   }, [averageData, setStoredRating]);

@@ -78,7 +78,7 @@ export default function MediaActions({ media }: Record<'media', MediaDetails>) {
   const { isLiked, isWatched, debouncedHandleClick } = useMediaActions(
     mediaType,
     mediaId,
-    reviewData?.data,
+    reviewData,
   );
 
   useEffect(() => {
@@ -90,16 +90,13 @@ export default function MediaActions({ media }: Record<'media', MediaDetails>) {
 
   useEffect(() => {
     async function fetchListItem() {
-      const response = await getListItem(mediaType, mediaId);
-
-      if (response.error) {
-        toast.error(response.error.message);
-      }
-
-      const savedMedia = response.data;
-
-      if (savedMedia) {
-        setSavedToLists((prevState) => [...prevState, savedMedia]);
+      try {
+        const savedMedia = await getListItem(mediaType, mediaId);
+        if (savedMedia) {
+          setSavedToLists((prevState) => [...prevState, savedMedia]);
+        }
+      } catch (err) {
+        toast.error('Failed to load saved list state');
       }
     }
 
@@ -121,7 +118,7 @@ export default function MediaActions({ media }: Record<'media', MediaDetails>) {
       return;
     }
 
-    if (reviewData && !reviewData.data) {
+    if (reviewData == null) {
       toast.info('Please submit a rating first');
       return;
     }

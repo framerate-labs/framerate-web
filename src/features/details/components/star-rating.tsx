@@ -47,14 +47,8 @@ export default function StarRating({
 
   useEffect(() => {
     if (reviewData) {
-      if (reviewData.error) {
-        toast.error(reviewData.error.message);
-      }
-
-      if (reviewData.data) {
-        const dbRating = parseFloat(reviewData.data.rating);
-        setRating(dbRating);
-      }
+      const dbRating = parseFloat(reviewData.rating);
+      setRating(dbRating);
     }
 
     return () => {
@@ -69,25 +63,27 @@ export default function StarRating({
       setHover(null);
       clearMediaActions();
 
-      const response = await deleteReview(mediaType, mediaId, queryClient);
+      try {
+        const response = await deleteReview(mediaType, mediaId, queryClient);
+        // delete returns null on success
+        if (response === null) {
+          toast.info('Rating removed');
 
-      if (response && response.data === 'success') {
-        toast.info('Rating removed');
-
-        queryClient.invalidateQueries({
-          queryKey: ['average-rating', media.mediaType, media.id],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ['review', mediaType, mediaId],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ['library'],
-        });
-
-        return;
+          queryClient.invalidateQueries({
+            queryKey: ['average-rating', media.mediaType, media.id],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ['review', mediaType, mediaId],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ['library'],
+          });
+          return;
+        }
+        toast.info('Failed to delete rating! Please try again later');
+      } catch {
+        toast.info('Failed to delete rating! Please try again later');
       }
-
-      toast.info('Failed to delete rating! Please try again later');
     } else {
       if (rating && !isWatched) {
         // if not already marked watched, prevents changing that when user updates rating
@@ -120,6 +116,7 @@ export default function StarRating({
                       type="radio"
                       name="rating"
                       value={ratingValue}
+                      aria-label={`Rate ${ratingValue} stars`}
                       onClick={() => {
                         handleClick(ratingValue);
                         if (rating !== ratingValue) handleRating(ratingValue);

@@ -9,6 +9,7 @@ type PosterProps = {
   perspectiveEnabled: boolean;
   scale?: number;
   loading: 'eager' | 'lazy';
+  sizes?: string;
   classes: string;
 };
 
@@ -21,6 +22,7 @@ export default function Poster({
   perspectiveEnabled,
   scale,
   loading,
+  sizes,
   classes,
 }: PosterProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -99,11 +101,17 @@ export default function Poster({
           <img
             ref={imageRef}
             src={`https://image.tmdb.org/t/p/${fetchSize}${src}`}
-            alt={`A poster from the film ${title}`}
+            srcSet={`https://image.tmdb.org/t/p/w154${src} 154w, https://image.tmdb.org/t/p/w185${src} 185w, https://image.tmdb.org/t/p/w342${src} 342w, https://image.tmdb.org/t/p/w500${src} 500w, https://image.tmdb.org/t/p/w780${src} 780w`}
+            sizes={sizes ?? `${width}px`}
+            alt={`Poster for ${title}`}
             width={width}
             height={height}
+            decoding="async"
+            fetchPriority={loading === 'eager' ? 'high' : 'auto'}
+            referrerPolicy="no-referrer"
             onLoad={handleImageLoad}
             loading={loading}
+            draggable={false}
             className={`${classes} ${imageLoaded ? 'animate-fade-in' : 'opacity-0'} peer relative top-0 rounded object-cover drop-shadow select-none`}
           />
         )}

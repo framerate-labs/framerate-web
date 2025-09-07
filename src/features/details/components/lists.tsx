@@ -55,13 +55,7 @@ export default function Lists({
         toast.error('Failed to get lists!');
         return;
       }
-
-      if (listsData.error) {
-        toast.error(listsData.error.message);
-        return;
-      }
-
-      setLists(listsData.data);
+      setLists(listsData);
     }
   }, [isFetching, listsData, lists.length, setLists, clearLists]);
 
@@ -74,26 +68,25 @@ export default function Lists({
     if (matchedLists.length === 0) {
       const requestData = { listId, mediaType, mediaId };
 
-      const response = await addListItem(requestData);
-
-      if (response.error) {
-        return toast.error(response.error.message);
+      try {
+        const result = await addListItem(requestData);
+        // result: { created: boolean, item: {...} }
+        const item = result.item;
+        setSavedToLists((prevState) => {
+          const mid = mediaType === 'movie' ? item.movieId : item.seriesId;
+          return [
+            ...prevState,
+            {
+              listId: item.listId,
+              listItemId: item.id,
+              mediaType: item.mediaType,
+              mediaId: mid,
+            },
+          ];
+        });
+      } catch (err) {
+        return toast.error('Failed to add to list');
       }
-
-      const { data } = response;
-
-      setSavedToLists((prevState) => {
-        const mediaId = mediaType === 'movie' ? data.movieId : data.seriesId;
-        return [
-          ...prevState,
-          {
-            listId: data.listId,
-            listItemId: data.id,
-            mediaType: data.mediaType,
-            mediaId,
-          },
-        ];
-      });
 
       toast.success('Added to list');
     }
@@ -102,20 +95,14 @@ export default function Lists({
     if (matchedLists.length > 0) {
       matchedLists.forEach(async (list) => {
         const { listItemId } = list;
-
-        const response = await deleteListItem(listItemId);
-
-        if (response.error) {
-          return toast.error(response.error.message);
+        try {
+          await deleteListItem(listItemId);
+          const newSavedToLists = savedToLists.filter((l) => l.listId !== listId);
+          setSavedToLists(newSavedToLists);
+          toast.success('Removed from list');
+        } catch {
+          return toast.error('Failed to remove from list');
         }
-
-        const newSavedToLists = savedToLists.filter(
-          (list) => list.listId !== listId,
-        );
-
-        setSavedToLists(newSavedToLists);
-
-        toast.success('Removed from list');
       });
     }
 

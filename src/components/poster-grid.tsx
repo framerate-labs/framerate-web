@@ -69,6 +69,7 @@ export default function PosterGrid({
                     width={160}
                     height={240}
                     perspectiveEnabled={true}
+                    sizes="(min-width: 1280px) 176px, (min-width: 1024px) 160px, (min-width: 768px) 140px, 120px"
                     loading={loadingStrategy}
                     classes="xl:h-[264px] xl:w-44"
                   />

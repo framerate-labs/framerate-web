@@ -82,6 +82,7 @@ export default function HomeCarousel({
                           height={240}
                           perspectiveEnabled={false}
                           scale={105}
+                          sizes="(min-width: 1280px) 176px, (min-width: 1024px) 160px, (min-width: 768px) 140px, 120px"
                           loading={loadingStrategy}
                           classes="w-fit aspect-[2/3] h-[164px] md:h-[255px]"
                         />
