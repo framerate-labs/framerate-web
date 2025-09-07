@@ -1,5 +1,6 @@
 import type { ListItem } from '@/types/lists';
 import type { Review } from '@/types/ratings';
+import { memo } from 'react';
 
 import { Link } from '@tanstack/react-router';
 
@@ -17,7 +18,7 @@ type PosterGridProps = {
   classes: string;
 };
 
-export default function PosterGrid({
+function PosterGrid({
   media,
   isTooltipEnabled,
   classes,
@@ -81,3 +82,21 @@ export default function PosterGrid({
     </div>
   );
 }
+
+function areEqual(prev: PosterGridProps, next: PosterGridProps) {
+  if (prev.classes !== next.classes) return false;
+  if (prev.isTooltipEnabled !== next.isTooltipEnabled) return false;
+  const a = prev.media;
+  const b = next.media;
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  // Shallow compare first/last ids to catch common mutations
+  const aFirst = a[0]?.mediaId;
+  const bFirst = b[0]?.mediaId;
+  const aLast = a[a.length - 1]?.mediaId;
+  const bLast = b[b.length - 1]?.mediaId;
+  return aFirst === bFirst && aLast === bLast;
+}
+
+export default memo(PosterGrid, areEqual);

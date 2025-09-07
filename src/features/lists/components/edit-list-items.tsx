@@ -25,12 +25,11 @@ export default function EditListItems({ listItems }: EditListItemsProps) {
 
   async function handleDelete() {
     for (const item of selectedItems) {
-      const response = await deleteListItem(item);
-
-      if (response.error) {
-        return toast.error(response.error.message);
-      } else {
+      try {
+        await deleteListItem(item);
         toast.success('Removed from list');
+      } catch {
+        return toast.error('Failed to remove from list');
       }
     }
   }
@@ -43,9 +42,13 @@ export default function EditListItems({ listItems }: EditListItemsProps) {
             const poster = (
               <img
                 src={`https://image.tmdb.org/t/p/w342${listItem.posterPath}`}
+                srcSet={`https://image.tmdb.org/t/p/w154${listItem.posterPath} 154w, https://image.tmdb.org/t/p/w185${listItem.posterPath} 185w, https://image.tmdb.org/t/p/w342${listItem.posterPath} 342w`}
+                sizes="(min-width: 1024px) 128px, 96px"
                 alt={`A promotional poster from ${listItem.title}`}
                 width={92}
                 height={138}
+                loading="lazy"
+                decoding="async"
                 className="aspect-[2/3] w-32 rounded"
               />
             );

@@ -1,6 +1,6 @@
 import type { Review } from '@/types/ratings';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ArrowUp } from 'lucide-react';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -17,7 +17,6 @@ export default function LibraryGrid({
 }: {
   fetchedReviews: Review<'movie' | 'tv'>[];
 }) {
-  const [reviews, setReviews] = useState<Review<'movie' | 'tv'>[]>([]);
   const [isArrowVisible, setIsArrowVisible] = useState(false);
 
   const scrollToTopBtn = useRef<HTMLButtonElement>(null);
@@ -29,44 +28,33 @@ export default function LibraryGrid({
   });
 
   useEffect(() => {
-    const toggleVisibility = () => {
-      setIsArrowVisible(window.scrollY > 500);
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          setIsArrowVisible(window.scrollY > 500);
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
 
-    window.addEventListener('scroll', toggleVisibility);
+    window.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      window.removeEventListener('scroll', toggleVisibility);
+      window.removeEventListener('scroll', onScroll);
     };
   }, []);
 
-  useEffect(() => {
-    if (fetchedReviews.length > 0) {
-      fetchedReviews.sort((a, b) => {
-        const dateA = new Date(a.createdAt).getTime();
-        const dateB = new Date(b.createdAt).getTime();
-        return dateB - dateA;
-      });
-    }
+  const reviews = useMemo(() => {
+    const sorted = [...fetchedReviews].sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return dateB - dateA;
+    });
 
-    if (filter === 'film') {
-      if (fetchedReviews.length > 0) {
-        const filtered = fetchedReviews.filter(
-          (review) => review.mediaType === 'movie',
-        );
-
-        return setReviews(filtered);
-      }
-    } else if (filter === 'series') {
-      if (fetchedReviews.length > 0) {
-        const filtered = fetchedReviews.filter(
-          (review) => review.mediaType === 'tv',
-        );
-
-        return setReviews(filtered);
-      }
-    } else {
-      setReviews(fetchedReviews);
-    }
+    if (filter === 'film') return sorted.filter((r) => r.mediaType === 'movie');
+    if (filter === 'series') return sorted.filter((r) => r.mediaType === 'tv');
+    return sorted;
   }, [fetchedReviews, filter]);
 
   return (

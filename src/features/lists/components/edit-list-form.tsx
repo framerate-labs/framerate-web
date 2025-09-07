@@ -52,23 +52,19 @@ export default function EditListForm({
       toast.loading('Updating...', { id: 'updating' });
       const updates = { name: values.listName };
 
-      const response = await updateList(listData.list.id, updates);
-
-      const data = response.data;
-
-      if (data) {
+      try {
+        const updated = await updateList(listData.list.id, updates);
         // After migrating lists to TanStack Query,
         // invalidate lists query instead of changing zustand state
-        removeList(data.id);
-        addList(data);
-        setReturnSlug(data.slug);
+        removeList(updated.id);
+        addList(updated);
+        setReturnSlug(updated.slug);
         toast.dismiss('updating');
         return toast.success('Collection updated');
+      } catch {
+        toast.dismiss('updating');
+        toast.error('Something went wrong while editing list! Please try again later');
       }
-
-      toast.error(
-        'Something went wrong while editing list! Please try again later',
-      );
     }
   }
 

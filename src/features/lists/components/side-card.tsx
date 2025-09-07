@@ -64,26 +64,23 @@ export default function SideCard({ listData }: SideCardProps) {
       const list = displayData.list;
 
       if (!isLiked) {
-        setLikeCount(likeCount + 1);
+        setLikeCount((v) => v + 1);
         setIsLiked(true);
-
-        const response = await addListAction(list.id, 'like');
-
-        if (response.error) {
+        try {
+          await addListAction(list.id, 'like');
+        } catch {
           toast.error('Failed to like list! Please try again later');
-          setLikeCount(likeCount - 1);
+          setLikeCount((v) => v - 1);
           setIsLiked(false);
         }
-      }
-
-      if (isLiked) {
-        setLikeCount(likeCount - 1);
+      } else {
+        setLikeCount((v) => v - 1);
         setIsLiked(false);
-        const response = await deleteListAction(list.id, 'like');
-
-        if (response.error) {
+        try {
+          await deleteListAction(list.id, 'like');
+        } catch {
           toast.error('Failed to unlike list! Please try again later');
-          setLikeCount(likeCount + 1);
+          setLikeCount((v) => v + 1);
           setIsLiked(true);
         }
       }
@@ -99,25 +96,23 @@ export default function SideCard({ listData }: SideCardProps) {
       const list = displayData.list;
 
       if (!isSaved) {
-        setSaveCount(saveCount + 1);
+        setSaveCount((v) => v + 1);
         setIsSaved(true);
-        const response = await addListAction(list.id, 'save');
-
-        if (response.error) {
+        try {
+          await addListAction(list.id, 'save');
+        } catch {
           toast.error('Failed to save list! Please try again later');
-          setSaveCount(saveCount - 1);
+          setSaveCount((v) => v - 1);
           setIsSaved(false);
         }
-      }
-
-      if (isSaved) {
-        setSaveCount(saveCount - 1);
+      } else {
+        setSaveCount((v) => v - 1);
         setIsSaved(false);
-        const response = await deleteListAction(list.id, 'save');
-
-        if (response.error) {
+        try {
+          await deleteListAction(list.id, 'save');
+        } catch {
           toast.error('Failed to unsave list! Please try again later');
-          setSaveCount(saveCount + 1);
+          setSaveCount((v) => v + 1);
           setIsSaved(true);
         }
       }
@@ -130,17 +125,14 @@ export default function SideCard({ listData }: SideCardProps) {
 
   async function handleDelete() {
     if (displayData) {
-      const response = await deleteList(displayData.list.id);
-
-      if (response.error) {
-        toast.error('Failed to delete list! Please try again later');
-      }
-
-      if (response.data) {
-        removeList(response.data.id);
+      try {
+        const deleted = await deleteList(displayData.list.id);
+        removeList(deleted.id);
         toast.success('List deleted');
         queryClient.invalidateQueries({ queryKey: ['lists'] });
         navigate({ to: '/collections' });
+      } catch {
+        toast.error('Failed to delete list! Please try again later');
       }
     }
   }
