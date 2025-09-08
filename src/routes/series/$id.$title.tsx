@@ -1,6 +1,7 @@
 import { queryOptions, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+import { DefaultCatchBoundary } from '@/components/default-catch-boundary';
 import Backdrop from '@/features/details/components/backdrop';
 import MediaDetails from '@/features/details/components/media-details';
 import { getDetails } from '@/server/details';
@@ -8,17 +9,23 @@ import { getDetails } from '@/server/details';
 function createQueryOptions(id: string) {
   return queryOptions({
     queryKey: ['tv-details', id],
-    queryFn: async () => await getDetails('tv', id),
+    queryFn: () => getDetails('tv', id),
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
   });
 }
 
 export const Route = createFileRoute('/series/$id/$title')({
+  beforeLoad: ({ params }) => {
+    if (!/^\d+$/.test(params.id)) {
+      throw redirect({ to: '/home' });
+    }
+  },
   loader: ({ context, params }) => {
     const detailsQueryOptions = createQueryOptions(params.id);
     return context.queryClient.ensureQueryData(detailsQueryOptions);
   },
+  errorComponent: DefaultCatchBoundary,
   component: SeriesPage,
 });
 

@@ -1,13 +1,23 @@
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { useEffect } from 'react';
+
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Fingerprint, Ticket } from 'lucide-react';
 
 import { GlassElement } from '@/components/liquid-glass/glass-element';
+import { authClient } from '@/lib/auth-client';
 
-export const Route = createFileRoute('/')({
-  component: LandingPage,
-});
+export const Route = createFileRoute('/')({ component: LandingPage });
 
 export default function LandingPage() {
+  const navigate = useNavigate();
+  const { data: session } = authClient.useSession();
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      navigate({ to: '/home', replace: true });
+    }
+  }, [session, navigate]);
+
   return (
     <div className="relative min-h-screen">
       <header>

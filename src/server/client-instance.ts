@@ -51,9 +51,9 @@ function resolveServerUrl() {
   return 'http://localhost:8000';
 }
 
-const serverUrl = resolveServerUrl();
+export const apiBaseUrl = resolveServerUrl();
 
-export const client = treaty<App>(serverUrl, {
+export const client = treaty<App>(apiBaseUrl, {
   fetch: {
     // Required for cookie-based auth (SameSite=None + Secure in prod)
     credentials: 'include',

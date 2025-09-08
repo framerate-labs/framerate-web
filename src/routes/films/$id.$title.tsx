@@ -1,6 +1,7 @@
 import { queryOptions, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+import { DefaultCatchBoundary } from '@/components/default-catch-boundary';
 import Backdrop from '@/features/details/components/backdrop';
 import MediaDetails from '@/features/details/components/media-details';
 import { getDetails } from '@/server/details';
@@ -15,10 +16,17 @@ function createQueryOptions(id: string) {
 }
 
 export const Route = createFileRoute('/films/$id/$title')({
+  beforeLoad: ({ params }) => {
+    // Guard against invalid IDs to avoid bad network calls
+    if (!/^\d+$/.test(params.id)) {
+      throw redirect({ to: '/home' });
+    }
+  },
   loader: ({ context, params }) => {
     const detailsQueryOptions = createQueryOptions(params.id);
     return context.queryClient.ensureQueryData(detailsQueryOptions);
   },
+  errorComponent: DefaultCatchBoundary,
   component: FilmPage,
 });
 

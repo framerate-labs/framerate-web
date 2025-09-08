@@ -167,6 +167,15 @@
 }
 
 @layer utilities {
+  /* Hide scrollbars cross-browser while keeping scrollability */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
   @keyframes fade-in {
     0% {
       opacity: 0;
