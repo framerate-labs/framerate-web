@@ -61,7 +61,7 @@ function PosterGrid({
                   to={route}
                   params={{ id: result.mediaId.toString(), title: titleSlug }}
                   preload={false}
-                  className="relative block overflow-hidden rounded"
+                  className="relative block rounded"
                 >
                   <Poster
                     title={result.title}
