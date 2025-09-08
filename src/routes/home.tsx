@@ -7,7 +7,6 @@ import {
 } from '@tanstack/react-query';
 import { createFileRoute, useRouteContext } from '@tanstack/react-router';
 
-import { DefaultCatchBoundary } from '@/components/default-catch-boundary';
 import Header from '@/components/header';
 import HomeCarousel from '@/features/home/components/home-carousel';
 import { getTrending } from '@/server/trending';
@@ -39,7 +38,6 @@ export const Route = createFileRoute('/home')({
     const trendingQueryOptions = createQueryOptions(context.queryClient);
     return context.queryClient.ensureQueryData(trendingQueryOptions);
   },
-  errorComponent: DefaultCatchBoundary,
   component: Home,
 });
 

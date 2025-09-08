@@ -1,7 +1,6 @@
 import { queryOptions, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 
-import { DefaultCatchBoundary } from '@/components/default-catch-boundary';
 import Backdrop from '@/features/details/components/backdrop';
 import MediaDetails from '@/features/details/components/media-details';
 import { getDetails } from '@/server/details';
@@ -26,7 +25,6 @@ export const Route = createFileRoute('/films/$id/$title')({
     const detailsQueryOptions = createQueryOptions(params.id);
     return context.queryClient.ensureQueryData(detailsQueryOptions);
   },
-  errorComponent: DefaultCatchBoundary,
   component: FilmPage,
 });
 

@@ -13,3 +13,4 @@ todos.json
 .vscode
 routeTree.gen.ts
 .DS_Store
+.vercel

@@ -10,8 +10,10 @@ import { TanStackRouterDevtools } from '@tanstack/react-router-devtools';
 import { Analytics } from '@vercel/analytics/react';
 import { Toaster } from 'sonner';
 
+import manropeFontUrl from '@/assets/fonts/manrope-variable.woff2?url';
 import { DefaultCatchBoundary } from '@/components/default-catch-boundary';
 import Navbar from '@/components/navbar';
+import { NotFound } from '@/components/not-found';
 import appCss from '@/styles/app.css?url';
 
 export const Route = createRootRouteWithContext<{
@@ -32,13 +34,17 @@ export const Route = createRootRouteWithContext<{
       },
     ],
     links: [
-      {
-        rel: 'preload',
-        href: '/src/assets/fonts/manrope-variable.woff2',
-        as: 'font',
-        type: 'font/woff2',
-        crossOrigin: 'anonymous',
-      },
+      ...(import.meta.env.PROD
+        ? ([
+            {
+              rel: 'preload' as const,
+              href: manropeFontUrl,
+              as: 'font' as const,
+              type: 'font/woff2',
+              crossOrigin: 'anonymous' as const,
+            },
+          ] as const)
+        : ([] as const)),
       {
         rel: 'stylesheet',
         href: appCss,
@@ -46,11 +52,10 @@ export const Route = createRootRouteWithContext<{
     ],
   }),
   errorComponent: (props) => {
-    return (
-      <RootDocument>
-        <DefaultCatchBoundary {...props} />
-      </RootDocument>
-    );
+    return <DefaultCatchBoundary {...props} />;
+  },
+  notFoundComponent: () => {
+    return <NotFound />;
   },
   shellComponent: RootDocument,
 });
@@ -80,8 +85,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             }}
           />
           <Analytics />
-          {/*<TanStackRouterDevtools position="bottom-right" />*/}
-          {/*<ReactQueryDevtools buttonPosition="bottom-left" />*/}
+          {import.meta.env.DEV && (
+            <TanStackRouterDevtools position="bottom-right" />
+          )}
+          {import.meta.env.DEV && (
+            <ReactQueryDevtools buttonPosition="bottom-left" />
+          )}
           <Scripts />
         </div>
       </body>
