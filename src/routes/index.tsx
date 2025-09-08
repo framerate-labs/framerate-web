@@ -3,7 +3,6 @@ import { useEffect } from 'react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Fingerprint, Ticket } from 'lucide-react';
 
-import { GlassElement } from '@/components/liquid-glass/glass-element';
 import { authClient } from '@/lib/auth-client';
 
 export const Route = createFileRoute('/')({ component: LandingPage });
@@ -82,19 +81,11 @@ export default function LandingPage() {
 
             {/* CTA */}
             <Link to="/signup" className="inline-block">
-              <GlassElement
-                width={210}
-                height={36}
-                radius={100}
-                depth={3}
-                blur={0.5}
-                chromaticAberration={5}
-                debug={false}
-              >
-                <span className="text-foreground font-bold tracking-wide">
+              <div className="rounded-full border border-indigo-600 bg-indigo-800 px-14 py-2 shadow-md inset-shadow-xs inset-shadow-indigo-400 transition-colors duration-150 ease-in-out hover:bg-indigo-700">
+                <span className="text-foreground font-semibold tracking-wide">
                   Start Tracking
                 </span>
-              </GlassElement>
+              </div>
             </Link>
           </section>
         </section>

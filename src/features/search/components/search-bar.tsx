@@ -30,7 +30,7 @@ export default function SearchBar({
         placeholder="Search across film and tv"
         value={searchQuery}
         onChange={(e) => handleChange(e)}
-        className="bg-background-light h-[46px] w-full rounded border border-white/5 px-5 font-medium outline-none placeholder:tracking-wide placeholder:text-white/25 md:order-2 md:rounded-lg"
+        className="bg-background-dark/80 h-[46px] w-full rounded border border-white/10 px-5 font-medium backdrop-blur-xl outline-none placeholder:tracking-wide placeholder:text-white/35 md:order-2 md:rounded-lg"
       />
     </>
   );

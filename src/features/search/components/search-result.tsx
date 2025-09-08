@@ -28,7 +28,7 @@ export default function SearchResult({ media }: { media: MediaDetails }) {
   return (
     media.title &&
     media.releaseDate && (
-      <div className="animate-fade-in hover:bg-background mt-0 flex items-center justify-start rounded-md py-1 md:py-2">
+      <div className="animate-fade-in hover:bg-background-dark mt-0 flex items-center justify-start rounded-md py-1 md:py-2">
         <SearchDialogClose asChild>
           <Link
             to={route}
