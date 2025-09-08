@@ -18,7 +18,7 @@ export default function Sidebar() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
-    <nav className="animate-fade-in bg-background-dark sticky top-10 flex grow flex-col gap-4 overflow-scroll rounded-lg px-3 py-5">
+    <nav className="animate-fade-in bg-background-dark sticky top-10 flex w-full grow flex-col gap-4 overflow-y-auto overflow-x-hidden rounded-lg px-3 py-5">
       <div className="flex items-center justify-between pr-1 pl-2">
         <h2 className="text-left text-lg font-semibold">Your Collections</h2>
         <ListDialog dialogOpen={dialogOpen} setDialogOpen={setDialogOpen}>

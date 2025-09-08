@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
-
 import { toast } from 'sonner';
 
 import Dialog from '@/components/dialog';
@@ -14,7 +13,11 @@ type EditListItemsProps = {
   slug: string;
 };
 
-export default function EditListItems({ listItems, username, slug }: EditListItemsProps) {
+export default function EditListItems({
+  listItems,
+  username,
+  slug,
+}: EditListItemsProps) {
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
   const queryClient = useQueryClient();
 
@@ -43,32 +46,30 @@ export default function EditListItems({ listItems, username, slug }: EditListIte
 
   return (
     <div className="relative">
-      <div className="grid grid-cols-8 gap-4">
+      <div className="grid grid-cols-3 gap-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
         {listItems &&
           listItems.map((listItem) => {
-            const poster = (
-              <img
-                src={`https://image.tmdb.org/t/p/w342${listItem.posterPath}`}
-                srcSet={`https://image.tmdb.org/t/p/w154${listItem.posterPath} 154w, https://image.tmdb.org/t/p/w185${listItem.posterPath} 185w, https://image.tmdb.org/t/p/w342${listItem.posterPath} 342w`}
-                sizes="(min-width: 1024px) 128px, 96px"
-                alt={`A promotional poster from ${listItem.title}`}
-                width={92}
-                height={138}
-                loading="lazy"
-                decoding="async"
-                className="aspect-[2/3] w-32 rounded"
-              />
-            );
-
             return (
               <div
                 key={listItem.listItemId}
                 onClick={() => handleClick(listItem.listItemId)}
               >
                 <div
-                  className={`${selectedItems.includes(listItem.listItemId) ? 'before:bg-blue-500/50' : ''} pointer-events-none relative mb-2 flex duration-200 ease-in before:absolute before:top-0 before:left-0 before:z-10 before:size-full before:rounded before:transition-colors`}
+                  className={`${selectedItems.includes(listItem.listItemId) ? 'before:bg-blue-500/50' : ''} pointer-events-none relative mb-2 aspect-[2/3] w-24 duration-200 ease-in before:absolute before:inset-0 before:z-10 before:rounded before:transition-colors sm:w-28 md:w-32 lg:w-36`}
                 >
-                  {listItem.posterPath ? poster : ''}
+                  {listItem.posterPath && (
+                    <img
+                      src={`https://image.tmdb.org/t/p/w342${listItem.posterPath}`}
+                      srcSet={`https://image.tmdb.org/t/p/w154${listItem.posterPath} 154w, https://image.tmdb.org/t/p/w185${listItem.posterPath} 185w, https://image.tmdb.org/t/p/w342${listItem.posterPath} 342w`}
+                      sizes="(min-width: 1024px) 144px, (min-width: 768px) 128px, (min-width: 640px) 112px, 96px"
+                      alt={`A promotional poster from ${listItem.title}`}
+                      width={128}
+                      height={192}
+                      loading="lazy"
+                      decoding="async"
+                      className="absolute inset-0 h-full w-full rounded object-cover"
+                    />
+                  )}
                 </div>
                 <p className="pointer-events-none text-[0.8125rem] font-medium tracking-wide">
                   {listItem.title}
