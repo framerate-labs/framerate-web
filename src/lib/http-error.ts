@@ -43,7 +43,7 @@ export function toHttpError(err: unknown, fallback: string): HttpError {
   return new HttpError(String(message), status, err);
 }
 
-export function unwrapData<T = unknown>(value: unknown): T | unknown {
+export function unwrapData<T>(value: unknown): T {
   if (isObject(value) && 'data' in value) {
     return (value as { data: T }).data;
   }

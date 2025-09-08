@@ -18,7 +18,10 @@ function isDigits(value: string): boolean {
  * const details = await getDetails('movie', '603');
  * ```
  */
-export async function getDetails<T extends MediaType>(mediaType: T, id: string) {
+export async function getDetails<T extends MediaType>(
+  mediaType: T,
+  id: string,
+): Promise<MediaDetails<T>> {
   if (!VALID_MEDIA.includes(mediaType)) {
     throw new HttpError(`Invalid mediaType: ${mediaType}`);
   }
@@ -35,7 +38,7 @@ export async function getDetails<T extends MediaType>(mediaType: T, id: string) 
     }
 
     const details = unwrapData<MediaDetails<T>>(data);
-    return details as MediaDetails<T>;
+    return details;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to fetch details');

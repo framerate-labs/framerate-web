@@ -33,7 +33,7 @@ const VALID_WINDOWS: readonly TimeWindow[] = ['day', 'week'] as const;
 export async function getTrending<T extends MediaFilter>({
   filter,
   timeWindow,
-}: GetTrendingParams<T>) {
+}: GetTrendingParams<T>): Promise<Trending<T>[]> {
   // Runtime validation to fail fast on invalid inputs
   if (!VALID_FILTERS.includes(filter)) {
     throw new HttpError(`Invalid filter: ${filter}`);
@@ -52,7 +52,7 @@ export async function getTrending<T extends MediaFilter>({
     }
 
     const items = unwrapData<Trending<T>[]>(data);
-    return items as Trending<T>[];
+    return items;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to fetch trending');

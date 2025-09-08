@@ -24,13 +24,15 @@ function Library() {
     gcTime: 5 * 60 * 1000,
   });
 
-  const libraryIsReady = !isFetching && fetchedReviews && fetchedReviews.data;
+  const libraryIsReady = !isFetching && Array.isArray(fetchedReviews);
 
   return (
     <>
       <Header title="Library" />
       <main className="animate-fade-in">
-        {libraryIsReady && <LibraryGrid fetchedReviews={fetchedReviews.data} />}
+        {libraryIsReady && fetchedReviews && (
+          <LibraryGrid fetchedReviews={fetchedReviews} />
+        )}
       </main>
     </>
   );

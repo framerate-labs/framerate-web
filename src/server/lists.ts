@@ -16,10 +16,43 @@ type ListUpdates = {
 const listsRoute = client.api.v1.lists;
 const listItemsRoute = client.api.v1['list-items'];
 
+export type ListPageData = {
+  list: List;
+  isLiked: boolean;
+  isSaved: boolean;
+  listItems: Array<{
+    mediaType: 'movie' | 'tv';
+    listId: number;
+    mediaId: number;
+    listItemId: number;
+    title: string;
+    posterPath: string | null;
+    createdAt: Date;
+  }>;
+};
+
+export type SavedListItem = {
+  listId: number;
+  listItemId: number;
+  mediaType: 'movie' | 'tv';
+  mediaId: number | null;
+} | null;
+
+export type AddListItemResult = {
+  created: boolean;
+  item: {
+    id: number;
+    listId: number;
+    mediaType: 'movie' | 'tv';
+    movieId: number | null;
+    seriesId: number | null;
+  };
+};
+
 /**
  * Create a new list for the active user.
  */
-export async function createList(listName: string) {
+export async function createList(listName: string): Promise<List> {
   if (typeof listName !== 'string' || listName.trim().length < 1) {
     throw new HttpError('List name is required');
   }
@@ -28,7 +61,7 @@ export async function createList(listName: string) {
   try {
     const { data, error } = await listsRoute.post({ listName: safeName });
     if (error) throw toHttpError(error, 'Unable to create list');
-    return unwrapData<List>(data) as List;
+    return unwrapData<List>(data);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to create list');
@@ -38,11 +71,11 @@ export async function createList(listName: string) {
 /**
  * Fetch all lists for the active user.
  */
-export async function getLists() {
+export async function getLists(): Promise<List[]> {
   try {
     const { data, error } = await listsRoute.get();
     if (error) throw toHttpError(error, 'Unable to load lists');
-    return unwrapData(data);
+    return unwrapData<List[]>(data);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to load lists');
@@ -52,7 +85,7 @@ export async function getLists() {
 /**
  * Update list metadata (name).
  */
-export async function updateList(listId: number, updates: ListUpdates) {
+export async function updateList(listId: number, updates: ListUpdates): Promise<List> {
   if (!Number.isFinite(listId) || listId <= 0) {
     throw new HttpError(`Invalid listId: ${listId}`);
   }
@@ -64,7 +97,7 @@ export async function updateList(listId: number, updates: ListUpdates) {
   try {
     const { data, error } = await listsRoute({ listId }).patch({ listName: name });
     if (error) throw toHttpError(error, 'Unable to update list');
-    return unwrapData(data);
+    return unwrapData<List>(data);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to update list');
@@ -74,14 +107,14 @@ export async function updateList(listId: number, updates: ListUpdates) {
 /**
  * Delete a list by id.
  */
-export async function deleteList(listId: number) {
+export async function deleteList(listId: number): Promise<List> {
   if (!Number.isFinite(listId) || listId <= 0) {
     throw new HttpError(`Invalid listId: ${listId}`);
   }
   try {
     const { data, error } = await listsRoute({ listId }).delete();
     if (error) throw toHttpError(error, 'Unable to delete list');
-    return unwrapData(data);
+    return unwrapData<List>(data);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to delete list');
@@ -91,7 +124,7 @@ export async function deleteList(listId: number) {
 /**
  * Get a public list by username and slug.
  */
-export async function getListData(username: string, slug: string) {
+export async function getListData(username: string, slug: string): Promise<ListPageData> {
   const validUser = typeof username === 'string' && /^[a-zA-Z0-9_-]{3,32}$/.test(username);
   const validSlug = typeof slug === 'string' && slug.trim().length > 0;
   if (!validUser) throw new HttpError(`Invalid username: ${username}`);
@@ -103,7 +136,7 @@ export async function getListData(username: string, slug: string) {
       .lists({ slug })
       .get();
     if (error) throw toHttpError(error, 'Unable to load list');
-    return unwrapData(data);
+    return unwrapData<ListPageData>(data);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to load list');
@@ -113,7 +146,7 @@ export async function getListData(username: string, slug: string) {
 /**
  * Add an item to a list.
  */
-export async function addListItem(data: InsertListItem) {
+export async function addListItem(data: InsertListItem): Promise<AddListItemResult> {
   const { listId, mediaType, mediaId } = data || ({} as InsertListItem);
   if (!Number.isFinite(listId) || listId <= 0) {
     throw new HttpError(`Invalid listId: ${listId}`);
@@ -128,7 +161,7 @@ export async function addListItem(data: InsertListItem) {
   try {
     const { data: listItems, error } = await listItemsRoute.post({ listId, mediaType, mediaId });
     if (error) throw toHttpError(error, 'Unable to add list item');
-    return unwrapData(listItems);
+    return unwrapData<AddListItemResult>(listItems);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to add list item');
@@ -138,7 +171,10 @@ export async function addListItem(data: InsertListItem) {
 /**
  * Get current user's list item for a media id.
  */
-export async function getListItem(mediaType: 'movie' | 'tv', mediaId: number) {
+export async function getListItem(
+  mediaType: 'movie' | 'tv',
+  mediaId: number,
+): Promise<SavedListItem> {
   if (mediaType !== 'movie' && mediaType !== 'tv') {
     throw new HttpError(`Invalid mediaType: ${mediaType}`);
   }
@@ -149,7 +185,7 @@ export async function getListItem(mediaType: 'movie' | 'tv', mediaId: number) {
   try {
     const { data, error } = await listItemsRoute.get({ query: { mediaType, mediaId } });
     if (error) throw toHttpError(error, 'Unable to load list item');
-    return unwrapData(data);
+    return unwrapData<SavedListItem>(data);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to load list item');
@@ -159,14 +195,14 @@ export async function getListItem(mediaType: 'movie' | 'tv', mediaId: number) {
 /**
  * Delete a list item by id.
  */
-export async function deleteListItem(id: number) {
+export async function deleteListItem(id: number): Promise<null> {
   if (!Number.isFinite(id) || id <= 0) {
     throw new HttpError(`Invalid id: ${id}`);
   }
   try {
     const { data, error } = await listItemsRoute({ id }).delete();
     if (error) throw toHttpError(error, 'Unable to delete list item');
-    return unwrapData(data);
+    return unwrapData<null>(data);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to delete list item');

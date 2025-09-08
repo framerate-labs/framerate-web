@@ -1,5 +1,5 @@
 import { client } from './client-instance';
-import { HttpError, toHttpError, unwrapData } from '@/lib/http-error';
+import { HttpError, toHttpError } from '@/lib/http-error';
 
 const actionsRoute = client.api.v1.actions;
 
@@ -19,7 +19,7 @@ export async function updateReview({
   mediaId,
   field,
   value,
-}: ReviewData) {
+}: ReviewData): Promise<void> {
   if (mediaType !== 'movie' && mediaType !== 'tv') {
     throw new HttpError(`Invalid mediaType: ${mediaType}`);
   }
@@ -31,7 +31,7 @@ export async function updateReview({
   }
 
   try {
-    const { data, error } = await actionsRoute.media.patch({
+    const { error } = await actionsRoute.media.patch({
       mediaType,
       mediaId,
       field,
@@ -39,8 +39,7 @@ export async function updateReview({
     });
 
     if (error) throw toHttpError(error, 'Unable to update review');
-
-    return unwrapData(data);
+    return;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Unable to update review');
@@ -51,7 +50,7 @@ export async function updateReview({
  * Add a list action for the active user.
  * Valid fields: `like`, `save`.
  */
-export async function addListAction(listId: number, field: 'like' | 'save') {
+export async function addListAction(listId: number, field: 'like' | 'save'): Promise<void> {
   if (!Number.isFinite(listId) || listId <= 0) {
     throw new HttpError(`Invalid listId: ${listId}`);
   }
@@ -60,9 +59,9 @@ export async function addListAction(listId: number, field: 'like' | 'save') {
   }
 
   try {
-    const { data, error } = await actionsRoute.lists.put({ listId, field });
+    const { error } = await actionsRoute.lists.put({ listId, field });
     if (error) throw toHttpError(error, 'Unable to add list action');
-    return unwrapData(data);
+    return;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Unable to add list action');
@@ -73,7 +72,7 @@ export async function addListAction(listId: number, field: 'like' | 'save') {
  * Remove a list action for the active user.
  * Valid fields: `like`, `save`.
  */
-export async function deleteListAction(listId: number, field: 'like' | 'save') {
+export async function deleteListAction(listId: number, field: 'like' | 'save'): Promise<void> {
   if (!Number.isFinite(listId) || listId <= 0) {
     throw new HttpError(`Invalid listId: ${listId}`);
   }
@@ -82,11 +81,11 @@ export async function deleteListAction(listId: number, field: 'like' | 'save') {
   }
 
   try {
-    const { data, error } = await actionsRoute.lists.delete(null, {
+    const { error } = await actionsRoute.lists.delete(null, {
       query: { listId, field },
     });
     if (error) throw toHttpError(error, 'Unable to delete list action');
-    return unwrapData(data);
+    return;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Unable to delete list action');
