@@ -42,7 +42,11 @@ function RouteComponent() {
   const setListItems = useListItemStore.use.setListItems();
   const clearListItems = useListItemStore.use.clearListItems();
 
-  const { data: listData, isFetching } = useQuery({
+  const {
+    data: listData,
+    isFetching,
+    error,
+  } = useQuery({
     queryKey: ['list-items', username, slug],
     queryFn: () => getListData(username, slug),
     staleTime: 2 * 60 * 1000,
@@ -58,10 +62,8 @@ function RouteComponent() {
         setIsLiked(listData.isLiked);
         setIsSaved(listData.isSaved);
         setListItems(listData.listItems);
-      }
-
-      if (!isFetching && !listData) {
-        toast.error('Something went wrong while getting list data!');
+      } else if (error) {
+        toast.error('Failed to load collection');
       }
     }
 
@@ -70,6 +72,7 @@ function RouteComponent() {
       clearListItems();
     };
   }, [
+    error,
     isFetching,
     listData,
     setActiveList,
@@ -83,13 +86,19 @@ function RouteComponent() {
   ]);
 
   useEffect(() => {
-    const toggleVisibility = () => {
-      setIsArrowVisible(window.scrollY > 500);
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          setIsArrowVisible(window.scrollY > 500);
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
-
-    window.addEventListener('scroll', toggleVisibility);
+    window.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      window.removeEventListener('scroll', toggleVisibility);
+      window.removeEventListener('scroll', onScroll);
     };
   }, []);
 
@@ -102,7 +111,7 @@ function RouteComponent() {
       /> */}
       {/* <div className="relative -top-28 mt-10"> */}
       <div className="relative mt-10">
-        <Link to="/collections">
+        <Link to="/collections" aria-label="Back to collections">
           <ArrowLeftCircle
             size={26}
             strokeWidth={1.5}

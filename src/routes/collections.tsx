@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
+import { useEffect } from 'react';
 import { toast } from 'sonner';
 
 import Header from '@/components/header';
@@ -14,24 +15,26 @@ export const Route = createFileRoute('/collections')({
 function CollectionPage() {
   const setLists = useListStore.use.setLists();
 
-  const { data: userLists, isFetching } = useQuery({
+  const { data: userLists, isFetching, error } = useQuery({
     queryKey: ['lists'],
     queryFn: () => getLists(),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
 
-  const listsAreReady = !isFetching && userLists && userLists.data;
-
-  if (listsAreReady) {
-    if (userLists.error) {
-      toast('Something went wrong while getting your lists!');
+  useEffect(() => {
+    if (!isFetching && error) {
+      toast.error('Failed to load your collections');
     }
+  }, [error, isFetching]);
 
-    if (userLists.data) {
-      setLists(userLists.data);
+  useEffect(() => {
+    if (userLists) {
+      setLists(userLists);
     }
-  }
+  }, [userLists, setLists]);
+
+  const listsAreReady = !isFetching && Array.isArray(userLists) && userLists.length > 0;
 
   return (
     <div className="size-full">

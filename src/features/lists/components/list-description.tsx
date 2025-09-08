@@ -21,20 +21,17 @@ type ListDescriptionProps = {
 
 export default function ListDescription({ listData }: ListDescriptionProps) {
   const [displayData, setDisplayData] = useState<ListData>();
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 
   const { username } = CollectionPageRoute.useParams();
 
   const [hovering, setHovering] = useState(false);
 
-  // This method of assigning query data to local state is necessary to prevent
-  // component flashing when the cache is invalidated due to list actions (like/save)
+  // Keep UI in sync with server data after mutations
   useEffect(() => {
-    if (listData && !initialDataLoaded) {
+    if (listData) {
       setDisplayData(listData);
-      setInitialDataLoaded(true);
     }
-  }, [listData, initialDataLoaded]);
+  }, [listData]);
 
   return (
     displayData && (

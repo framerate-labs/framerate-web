@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
@@ -22,7 +22,7 @@ function RouteComponent() {
 
   const navigate = useNavigate();
 
-  const { data: listData } = useQuery({
+  const { data: listData, error, isFetching } = useQuery({
     queryKey: ['list-items', username, slug],
     queryFn: () => getListData(username, slug),
     staleTime: 2 * 60 * 1000,
@@ -34,6 +34,13 @@ function RouteComponent() {
   function handleClick() {
     navigate({ to: `/${username}/collections/${returnSlug}` });
   }
+
+  useEffect(() => {
+    if (!isFetching && error) {
+      // If the collection cannot be loaded, navigate back to the view page
+      navigate({ to: `/${username}/collections/${slug}`, replace: true });
+    }
+  }, [error, isFetching, navigate, slug, username]);
 
   return (
     <div>
@@ -67,7 +74,7 @@ function RouteComponent() {
                 </span>
               </div>
 
-              <EditListItems listItems={sortedListItems} />
+              <EditListItems listItems={sortedListItems} username={username} slug={slug} />
             </section>
           </div>
         )}

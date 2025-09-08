@@ -18,16 +18,13 @@ type ListGridProps = {
 
 export default function ListGrid({ listData, isFetching }: ListGridProps) {
   const [displayData, setDisplayData] = useState<ListItem[]>();
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 
-  // This method of assigning query data to local state is necessary to prevent
-  // component flashing when the cache is invalidated due to list actions (like/save)
+  // Keep UI in sync with server data after mutations; update when fetch completes
   useEffect(() => {
-    if (listData && !initialDataLoaded) {
+    if (!isFetching && listData) {
       setDisplayData(listData.listItems);
-      setInitialDataLoaded(true);
     }
-  }, [listData, initialDataLoaded]);
+  }, [listData, isFetching]);
 
   return (
     <section

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 import { toast } from 'sonner';
 
 import Dialog from '@/components/dialog';
@@ -8,10 +10,13 @@ import { ListItem } from '@/types/lists';
 
 type EditListItemsProps = {
   listItems: ListItem[] | undefined;
+  username: string;
+  slug: string;
 };
 
-export default function EditListItems({ listItems }: EditListItemsProps) {
+export default function EditListItems({ listItems, username, slug }: EditListItemsProps) {
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const queryClient = useQueryClient();
 
   function handleClick(id: number) {
     setSelectedItems((prevState) => {
@@ -32,6 +37,8 @@ export default function EditListItems({ listItems }: EditListItemsProps) {
         return toast.error('Failed to remove from list');
       }
     }
+    // Refresh only the edited list page
+    queryClient.invalidateQueries({ queryKey: ['list-items', username, slug] });
   }
 
   return (

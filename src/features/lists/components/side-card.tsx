@@ -30,7 +30,6 @@ type SideCardProps = {
 
 export default function SideCard({ listData }: SideCardProps) {
   const [displayData, setDisplayData] = useState<ListData>();
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [saveCount, setSaveCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
@@ -46,18 +45,16 @@ export default function SideCard({ listData }: SideCardProps) {
 
   const formatter = Intl.NumberFormat('en', { notation: 'compact' });
 
-  // This method of assigning query data to local state is necessary to prevent
-  // component flashing when the cache is invalidated due to list actions (like/save)
+  // Keep UI in sync with server after mutations and invalidations
   useEffect(() => {
-    if (listData && !initialDataLoaded) {
+    if (listData) {
       setDisplayData(listData);
-      setInitialDataLoaded(true);
       setLikeCount(listData.list.likeCount);
       setSaveCount(listData.list.saveCount);
       setIsLiked(listData.isLiked);
       setIsSaved(listData.isSaved);
     }
-  }, [listData, initialDataLoaded, setIsLiked, setIsSaved]);
+  }, [listData, setIsLiked, setIsSaved]);
 
   async function updateLike() {
     if (displayData) {
@@ -86,7 +83,7 @@ export default function SideCard({ listData }: SideCardProps) {
       }
 
       queryClient.invalidateQueries({
-        queryKey: ['list-items', username, list.name.toLowerCase()],
+        queryKey: ['list-items', username, slug],
       });
     }
   }
@@ -118,7 +115,7 @@ export default function SideCard({ listData }: SideCardProps) {
       }
 
       queryClient.invalidateQueries({
-        queryKey: ['list-items', username, list.name.toLowerCase()],
+        queryKey: ['list-items', username, slug],
       });
     }
   }
