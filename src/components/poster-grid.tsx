@@ -1,5 +1,6 @@
 import type { ListItem } from '@/types/lists';
 import type { Review } from '@/types/ratings';
+
 import { memo } from 'react';
 
 import { Link } from '@tanstack/react-router';
@@ -18,11 +19,7 @@ type PosterGridProps = {
   classes: string;
 };
 
-function PosterGrid({
-  media,
-  isTooltipEnabled,
-  classes,
-}: PosterGridProps) {
+function PosterGrid({ media, isTooltipEnabled, classes }: PosterGridProps) {
   return (
     <div className={`${classes} animate-fade-in-fast grid`}>
       {media &&
@@ -34,6 +31,7 @@ function PosterGrid({
           const titleSlug = slugify(result.title);
           const rating = 'rating' in result && parseFloat(result.rating);
           const loadingStrategy = index < 24 ? 'eager' : 'lazy';
+          const fetchStrategy = index < 24 ? 'high' : 'low';
 
           const tooltipContent = (
             <div className="max-w-48">
@@ -70,8 +68,8 @@ function PosterGrid({
                     width={160}
                     height={240}
                     perspectiveEnabled={true}
-                    sizes="(min-width: 1280px) 176px, (min-width: 1024px) 160px, (min-width: 768px) 140px, 120px"
                     loading={loadingStrategy}
+                    fetchPriority={fetchStrategy}
                     classes="xl:h-[264px] xl:w-44"
                   />
                 </Link>

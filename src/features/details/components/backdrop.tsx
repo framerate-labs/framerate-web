@@ -37,8 +37,7 @@ export default function Backdrop({
       <div className={`relative -z-10 m-auto h-auto w-full overflow-hidden`}>
         <img
           ref={imageRef}
-          src={`https://image.tmdb.org/t/p/w1280${backdropPath}`}
-          srcSet={`https://image.tmdb.org/t/p/w780${backdropPath} 780w, https://image.tmdb.org/t/p/w1280${backdropPath} 1280w, https://image.tmdb.org/t/p/original${backdropPath} 1920w`}
+          src={`https://image.tmdb.org/t/p/original${backdropPath}`}
           sizes="100vw"
           alt={alt}
           loading="eager"

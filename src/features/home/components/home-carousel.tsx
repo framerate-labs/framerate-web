@@ -62,7 +62,8 @@ export default function HomeCarousel({
               <CarouselContent>
                 {data?.map((media, index) => {
                   const titleSlug = slugify(media.title);
-                  const loadingStrategy = index < 6 ? 'eager' : 'lazy';
+                  const loadingStrategy = index < 7 ? 'eager' : 'lazy';
+                  const fetchStrategy = index < 7 ? 'high' : 'low';
 
                   return (
                     <CarouselItem key={media.id}>
@@ -82,8 +83,8 @@ export default function HomeCarousel({
                           height={240}
                           perspectiveEnabled={false}
                           scale={105}
-                          sizes="(min-width: 1280px) 176px, (min-width: 1024px) 160px, (min-width: 768px) 140px, 120px"
                           loading={loadingStrategy}
+                          fetchPriority={fetchStrategy}
                           classes="w-fit aspect-[2/3] h-[164px] md:h-[255px]"
                         />
                       </Link>

@@ -27,8 +27,8 @@ export default function MediaDetails({
             width={230}
             height={345}
             perspectiveEnabled={true}
-            sizes="(min-width: 1280px) 230px, (min-width: 1024px) 200px, (min-width: 768px) 180px, 160px"
             loading="eager"
+            fetchPriority="high"
             classes="w-full h-auto"
           />
         </aside>

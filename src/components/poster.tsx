@@ -9,7 +9,7 @@ type PosterProps = {
   perspectiveEnabled: boolean;
   scale?: number;
   loading: 'eager' | 'lazy';
-  sizes?: string;
+  fetchPriority: 'high' | 'low' | 'auto';
   classes: string;
 };
 
@@ -22,7 +22,7 @@ export default function Poster({
   perspectiveEnabled,
   scale,
   loading,
-  sizes,
+  fetchPriority,
   classes,
 }: PosterProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -101,13 +101,11 @@ export default function Poster({
           <img
             ref={imageRef}
             src={`https://image.tmdb.org/t/p/${fetchSize}${src}`}
-            srcSet={`https://image.tmdb.org/t/p/w154${src} 154w, https://image.tmdb.org/t/p/w185${src} 185w, https://image.tmdb.org/t/p/w342${src} 342w, https://image.tmdb.org/t/p/w500${src} 500w, https://image.tmdb.org/t/p/w780${src} 780w`}
-            sizes={sizes ?? `${width}px`}
             alt={`Poster for ${title}`}
             width={width}
             height={height}
             decoding="async"
-            fetchPriority={loading === 'eager' ? 'high' : 'auto'}
+            fetchPriority={fetchPriority}
             referrerPolicy="no-referrer"
             onLoad={handleImageLoad}
             loading={loading}
