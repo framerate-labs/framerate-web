@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import {
-  Bolt,
-  CircleUserIcon,
+  // Bolt,
+  // CircleUserIcon,
   // Compass,
   Search,
   SquareLibrary,
@@ -134,22 +134,22 @@ export default function Navbar() {
       key2: 'L',
       icon: SquareLibrary,
     },
-    {
-      id: 5,
-      name: 'Profile',
-      href: `/profile`,
-      key1: 'G',
-      key2: 'M',
-      icon: CircleUserIcon,
-    },
-    {
-      id: 6,
-      name: 'Preferences',
-      href: '/preferences',
-      key1: 'G',
-      key2: 'P',
-      icon: Bolt,
-    },
+    // {
+    //   id: 5,
+    //   name: 'Profile',
+    //   href: `/profile`,
+    //   key1: 'G',
+    //   key2: 'M',
+    //   icon: CircleUserIcon,
+    // },
+    // {
+    //   id: 6,
+    //   name: 'Preferences',
+    //   href: '/preferences',
+    //   key1: 'G',
+    //   key2: 'P',
+    //   icon: Bolt,
+    // },
   ];
 
   return (
@@ -157,14 +157,14 @@ export default function Navbar() {
       <TooltipProvider>
         <div className="fixed right-0 bottom-2 left-0 z-50 mx-auto flex w-fit items-center justify-center gap-x-2">
           <div className="bg-background-dark/70 rounded-full border border-white/10 shadow-md backdrop-blur-sm">
-            <nav className="relative flex gap-x-6 px-4 py-0.5">
+            <nav className="relative flex gap-x-6 px-6 py-0">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
                   <Tooltip
                     key={tab.id}
                     side="top"
-                    sideOffset={18}
+                    sideOffset={14}
                     content={tab.name}
                     key1={tab.key1}
                     key2={tab.key2}
@@ -178,9 +178,9 @@ export default function Navbar() {
                       className="relative flex items-center justify-center bg-transparent text-neutral-200 transition-all duration-200 ease-in-out before:absolute before:top-0 before:bottom-0 before:my-auto before:size-8 before:rounded-full before:transition-all before:duration-200 before:ease-in-out hover:text-[#522aff] focus:outline-[#522aff]"
                     >
                       <Icon
-                        width={20}
-                        height={40}
-                        strokeWidth={2}
+                        width={24}
+                        height={48}
+                        strokeWidth={1.75}
                         className=""
                       />
                     </Link>
@@ -196,12 +196,12 @@ export default function Navbar() {
                 ref={searchBtn}
                 className="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
               >
-                <div className="bg-background-dark/70 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 shadow-md backdrop-blur-sm">
-                  <Tooltip side="top" sideOffset={18} content="Search" key1="/">
+                <div className="bg-background-dark/70 flex size-12 items-center justify-center rounded-full border border-white/10 shadow-md backdrop-blur-sm">
+                  <Tooltip side="top" sideOffset={14} content="Search" key1="/">
                     <Search
-                      width={20}
-                      height={20}
-                      strokeWidth={2}
+                      width={24}
+                      height={48}
+                      strokeWidth={1.75}
                       className="relative"
                     />
                   </Tooltip>

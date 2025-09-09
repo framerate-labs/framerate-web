@@ -34,6 +34,11 @@ export const Route = createRootRouteWithContext<{
       },
     ],
     links: [
+      {
+        rel: 'preconnect' as const,
+        href: 'https://image.tmdb.org',
+        crossOrigin: 'anonymous' as const,
+      },
       ...(import.meta.env.PROD
         ? ([
             {
@@ -71,9 +76,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body
-        className={`${pathname === '/' ? 'bg-background-landing' : 'bg-background'} ${pathname.includes('film') || pathname.includes('series') ? 'p-0' : 'px-2 py-4'} font-manrope dark antialiased md:p-0`}
+        className={`${pathname === '/' ? 'bg-background-landing' : 'bg-background'} ${pathname.includes('film') || pathname.includes('series') ? 'py-0' : 'px-2 py-4'} font-manrope dark antialiased md:px-6`}
       >
-        <div className="mx-auto size-full max-w-md md:max-w-2xl lg:max-w-6xl xl:max-w-[1200px]">
+        <div className="mx-auto size-full max-w-md md:max-w-2xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[1200px]">
           {children}
           <Navbar />
           <Toaster

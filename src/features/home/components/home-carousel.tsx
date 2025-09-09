@@ -85,7 +85,7 @@ export default function HomeCarousel({
                           scale={105}
                           loading={loadingStrategy}
                           fetchPriority={fetchStrategy}
-                          classes="w-fit aspect-[2/3] h-[164px] md:h-[255px]"
+                          classes="w-fit aspect-[2/3] h-[160px] md:h-[195px] lg:h-[245px]"
                         />
                       </Link>
                     </CarouselItem>

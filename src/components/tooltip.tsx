@@ -35,7 +35,7 @@ export default function Tooltip({
         sideOffset={sideOffset}
         className={`${classes} slide-in-from-bottom-2`}
       >
-        <div className="text-[13px] tracking-wide">
+        <div className="text-sm font-semibold tracking-wide">
           {content}
           {key1 && (
             <>

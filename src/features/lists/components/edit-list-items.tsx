@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import Dialog from '@/components/dialog';
+import Poster from '@/components/poster';
 import { deleteListItem } from '@/server/lists';
 import { ListItem } from '@/types/lists';
 
@@ -58,16 +59,16 @@ export default function EditListItems({
                   className={`${selectedItems.includes(listItem.listItemId) ? 'before:bg-blue-500/50' : ''} pointer-events-none relative mb-2 aspect-[2/3] w-24 duration-200 ease-in before:absolute before:inset-0 before:z-10 before:rounded before:transition-colors sm:w-28 md:w-32 lg:w-36`}
                 >
                   {listItem.posterPath && (
-                    <img
-                      src={`https://image.tmdb.org/t/p/w342${listItem.posterPath}`}
-                      srcSet={`https://image.tmdb.org/t/p/w154${listItem.posterPath} 154w, https://image.tmdb.org/t/p/w185${listItem.posterPath} 185w, https://image.tmdb.org/t/p/w342${listItem.posterPath} 342w`}
-                      sizes="(min-width: 1024px) 144px, (min-width: 768px) 128px, (min-width: 640px) 112px, 96px"
-                      alt={`A promotional poster from ${listItem.title}`}
+                    <Poster
+                      src={listItem.posterPath}
+                      fetchSize="w342"
+                      title={listItem.title}
                       width={128}
                       height={192}
                       loading="lazy"
-                      decoding="async"
-                      className="absolute inset-0 h-full w-full rounded object-cover"
+                      fetchPriority="auto"
+                      perspectiveEnabled={false}
+                      classes="absolute inset-0 h-full w-full rounded object-cover"
                     />
                   )}
                 </div>

@@ -9,7 +9,7 @@ import {
   BookmarkIcon,
   EyeIcon,
   HeartIcon,
-  PenIcon,
+  // PenIcon,
 } from '@/components/icons/media-actions-icons';
 import Tooltip from '@/components/tooltip';
 import { TooltipProvider } from '@/components/ui/tooltip-ui';
@@ -48,14 +48,14 @@ const actions = [
     active: 'fill-[#00e4f5]',
     hover: 'hover:fill-[#00e4f5]',
   },
-  {
-    id: 4,
-    name: 'review' as const,
-    content: 'Review',
-    icon: PenIcon,
-    active: 'fill-[#7468F3]',
-    hover: 'hover:fill-[#7468F3]',
-  },
+  // {
+  //   id: 4,
+  //   name: 'review' as const,
+  //   content: 'Review',
+  //   icon: PenIcon,
+  //   active: 'fill-[#7468F3]',
+  //   hover: 'hover:fill-[#7468F3]',
+  // },
 ];
 
 export default function MediaActions({ media }: Record<'media', MediaDetails>) {
@@ -133,7 +133,7 @@ export default function MediaActions({ media }: Record<'media', MediaDetails>) {
   }
 
   return (
-    <div className="mt-3 flex w-full items-center justify-between gap-0 px-1.5">
+    <div className="mt-3 flex w-full items-center justify-evenly gap-0 px-1.5">
       <TooltipProvider>
         {actions.map((action) => {
           const Icon = action.icon;

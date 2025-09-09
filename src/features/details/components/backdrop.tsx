@@ -40,9 +40,9 @@ export default function Backdrop({
           src={`https://image.tmdb.org/t/p/original${backdropPath}`}
           sizes="100vw"
           alt={alt}
-          loading="eager"
+          loading="lazy"
           decoding="async"
-          fetchPriority="high"
+          fetchPriority="auto"
           width={1920}
           height={1080}
           onLoad={handleImageLoad}

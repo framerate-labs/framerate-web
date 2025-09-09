@@ -30,8 +30,8 @@ function PosterGrid({ media, isTooltipEnabled, classes }: PosterGridProps) {
 
           const titleSlug = slugify(result.title);
           const rating = 'rating' in result && parseFloat(result.rating);
-          const loadingStrategy = index < 24 ? 'eager' : 'lazy';
-          const fetchStrategy = index < 24 ? 'high' : 'low';
+          const loadingStrategy = index < 18 ? 'eager' : 'lazy';
+          const fetchStrategy = index < 18 ? 'high' : 'low';
 
           const tooltipContent = (
             <div className="max-w-48">
