@@ -1,4 +1,4 @@
-import type { List } from '@/types/lists';
+import type { List, PopularList } from '@/types/lists';
 import { HttpError, toHttpError, unwrapData } from '@/lib/http-error';
 
 import { client } from './client-instance';
@@ -206,5 +206,19 @@ export async function deleteListItem(id: number): Promise<null> {
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw toHttpError(err, 'Failed to delete list item');
+  }
+}
+
+/**
+ * Fetch popular lists ordered by total view count.
+ */
+export async function getPopularLists(limit = 10): Promise<PopularList[]> {
+  try {
+    const { data, error } = await listsRoute.popular.get({ query: { limit } });
+    if (error) throw toHttpError(error, 'Unable to load popular lists');
+    return unwrapData<PopularList[]>(data);
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    throw toHttpError(err, 'Failed to load popular lists');
   }
 }

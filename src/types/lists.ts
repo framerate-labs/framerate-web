@@ -21,3 +21,8 @@ export type ListItem = {
 };
 
 export type ActiveList = List;
+
+export type PopularList = List & {
+  username: string;
+  viewCount: number;
+};

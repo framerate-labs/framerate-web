@@ -41,7 +41,9 @@ export default function ListDescription({ listData }: ListDescriptionProps) {
           Collection by{' '}
           <Link
             to="/home"
-            className="hover:text-foreground font-bold opacity-100 transition-colors duration-200"
+            aria-disabled
+            className="font-bold opacity-100 transition-colors duration-200"
+            disabled
           >
             {username}
           </Link>

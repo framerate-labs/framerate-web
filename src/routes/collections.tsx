@@ -1,9 +1,19 @@
+import { useEffect } from 'react';
+
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect } from 'react';
 import { toast } from 'sonner';
 
 import Header from '@/components/header';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from '@/components/ui/drawer';
+import PopularListsGrid from '@/features/lists/components/popular-lists-grid';
 import Sidebar from '@/features/lists/components/sidebar';
 import { getLists } from '@/server/lists';
 import { useListStore } from '@/store/lists/list-store';
@@ -15,7 +25,11 @@ export const Route = createFileRoute('/collections')({
 function CollectionPage() {
   const setLists = useListStore.use.setLists();
 
-  const { data: userLists, isFetching, error } = useQuery({
+  const {
+    data: userLists,
+    isFetching,
+    error,
+  } = useQuery({
     queryKey: ['lists'],
     queryFn: () => getLists(),
     staleTime: 5 * 60 * 1000,
@@ -34,18 +48,42 @@ function CollectionPage() {
     }
   }, [userLists, setLists]);
 
-  const listsAreReady = !isFetching && Array.isArray(userLists) && userLists.length > 0;
+  const listsAreReady =
+    !isFetching && Array.isArray(userLists) && userLists.length > 0;
 
   return (
     <div className="size-full">
       <Header title="Collections" />
+      {/* Mobile drawer trigger for sidebar */}
+      <div className="mb-3 md:hidden">
+        <Drawer>
+          <DrawerTrigger asChild>
+            <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium hover:bg-white/10">
+              View Your Collections
+            </button>
+          </DrawerTrigger>
+          <DrawerContent>
+            <DrawerHeader>
+              <DrawerTitle>Your Collections</DrawerTitle>
+              <DrawerDescription className="sr-only">
+                Navigate and manage your lists
+              </DrawerDescription>
+            </DrawerHeader>
+            <div className="overflow-y-auto px-4 pb-4">
+              {listsAreReady && <Sidebar />}
+            </div>
+          </DrawerContent>
+        </Drawer>
+      </div>
       <main className="animate-fade-in flex h-[calc(100vh-var(--header-height))] gap-2.5 pb-6">
-        <section className="flex w-[250px] flex-col">
+        <section className="hidden w-[150px] flex-shrink-0 flex-col md:flex md:w-[200px] md:min-w-[200px] lg:w-[240px]">
           {listsAreReady && <Sidebar />}
         </section>
 
-        <section className="mx-auto grow text-center font-medium">
-          <p>Collection discovery coming soon</p>
+        <section className="scrollbar-hide mx-auto grow overflow-y-auto pr-1">
+          <PopularListsGrid />
+          <PopularListsGrid />
+          <PopularListsGrid />
         </section>
       </main>
     </div>
