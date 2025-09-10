@@ -63,7 +63,9 @@ export default function EditListForm({
         return toast.success('Collection updated');
       } catch {
         toast.dismiss('updating');
-        toast.error('Something went wrong while editing list! Please try again later');
+        toast.error(
+          'Something went wrong while editing list! Please try again later',
+        );
       }
     }
   }
@@ -71,7 +73,7 @@ export default function EditListForm({
   return (
     listData && (
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-md">
           <FormField
             control={form.control}
             name="listName"
@@ -80,7 +82,7 @@ export default function EditListForm({
                 <FormLabel className="text-base">Collection Name</FormLabel>
                 <FormControl>
                   <div
-                    className={`w-[500px] rounded-md ring-1 ring-white/10 ${form.formState.errors.listName && '!ring-red-500'}`}
+                    className={`w-full rounded-md ring-1 ring-white/10 ${form.formState.errors.listName && '!ring-red-500'}`}
                   >
                     <Input
                       placeholder={listData.list.name}

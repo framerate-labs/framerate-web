@@ -22,7 +22,11 @@ function RouteComponent() {
 
   const navigate = useNavigate();
 
-  const { data: listData, error, isFetching } = useQuery({
+  const {
+    data: listData,
+    error,
+    isFetching,
+  } = useQuery({
     queryKey: ['list-items', username, slug],
     queryFn: () => getListData(username, slug),
     staleTime: 2 * 60 * 1000,
@@ -44,40 +48,55 @@ function RouteComponent() {
 
   return (
     <div>
-      <header className="mt-9 mb-10 flex items-center border-b border-white/[0.08]">
-        <h1 className="mb-4 text-[22px] font-semibold">Edit Collection</h1>
+      <header className="mt-9 mb-6 border-b border-white/[0.08]">
+        <div className="mx-auto w-full">
+          <h1 className="mb-4 text-[22px] font-semibold">Edit Collection</h1>
+        </div>
       </header>
 
       <main>
-        <button onClick={handleClick}>
-          <ArrowLeftCircle
-            size={26}
-            strokeWidth={1.5}
-            className="text-gray mb-6 cursor-pointer transition-colors duration-200 hover:text-white"
-          />
-        </button>
-        {listData && (
-          <div className="grid grid-cols-1 gap-5">
-            <EditListForm listData={listData} setReturnSlug={setReturnSlug} />
+        <div className="mx-auto px-1">
+          <button onClick={handleClick}>
+            <ArrowLeftCircle
+              size={26}
+              strokeWidth={1.5}
+              className="text-gray mb-6 cursor-pointer transition-colors duration-200 hover:text-white"
+            />
+          </button>
+          {listData && (
+            <>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                  <EditListForm
+                    listData={listData}
+                    setReturnSlug={setReturnSlug}
+                  />
+                </div>
 
-            <section className="bg-background-light flex h-[320px] items-center justify-center rounded-md">
-              <p className="text-base font-medium">Image upload coming soon!</p>
-            </section>
-
-            <hr className="bg-background my-3" />
-
-            <section className="mb-20">
-              <div className="mb-6">
-                <h2 className="font-medium">Edit Items</h2>
-                <span className="text-gray text-sm tracking-wide">
-                  Select poster to remove from list
-                </span>
+                <section className="bg-background-light flex h-[220px] items-center justify-center rounded-md md:h-[320px]">
+                  <p className="text-base font-medium">Image upload coming soon!</p>
+                </section>
               </div>
 
-              <EditListItems listItems={sortedListItems} username={username} slug={slug} />
-            </section>
-          </div>
-        )}
+              <hr className="bg-background my-3" />
+
+              <section className="mb-20">
+                <div className="mb-6">
+                  <h2 className="font-medium">Edit Items</h2>
+                  <span className="text-gray text-sm tracking-wide">
+                    Select poster to remove from list
+                  </span>
+                </div>
+
+                <EditListItems
+                  listItems={sortedListItems}
+                  username={username}
+                  slug={slug}
+                />
+              </section>
+            </>
+          )}
+        </div>
       </main>
     </div>
   );

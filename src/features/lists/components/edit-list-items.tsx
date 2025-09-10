@@ -47,7 +47,7 @@ export default function EditListItems({
 
   return (
     <div className="relative">
-      <div className="grid grid-cols-3 gap-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+      <div className="grid grid-cols-3 gap-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
         {listItems &&
           listItems.map((listItem) => {
             return (
