@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 
 import PosterGrid from '@/components/poster-grid';
 
+import ListGridSkeleton from './list-grid-skeleton';
+
 type ListData = {
   list: List;
   isLiked: boolean;
@@ -26,10 +28,14 @@ export default function ListGrid({ listData, isFetching }: ListGridProps) {
     }
   }, [listData, isFetching]);
 
+  const showContainerBg = isFetching || (displayData && displayData.length > 0);
+
   return (
     <section
-      className={`${displayData && displayData.length > 0 && 'bg-background-dark overflow-auto border border-white/10'} order-2 rounded-md p-4 md:order-1 md:w-4/5 md:px-7 md:py-8`}
+      className={`${showContainerBg ? 'bg-background-dark overflow-auto border border-white/10' : ''} order-2 rounded-md p-3 md:order-1 md:w-4/5 md:p-4 lg:p-6`}
     >
+      {isFetching && <ListGridSkeleton />}
+
       {displayData && displayData.length > 0 && (
         <PosterGrid
           media={displayData}

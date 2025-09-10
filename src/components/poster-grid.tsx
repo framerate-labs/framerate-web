@@ -70,7 +70,7 @@ function PosterGrid({ media, isTooltipEnabled, classes }: PosterGridProps) {
                     perspectiveEnabled={true}
                     loading={loadingStrategy}
                     fetchPriority={fetchStrategy}
-                    classes="xl:h-[264px] xl:w-44"
+                    classes="h-[165px] w-[110px] lg:w-[143px] lg:h-[213px] xl:h-[264px] xl:w-44"
                   />
                 </Link>
               </Tooltip>

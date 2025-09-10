@@ -54,8 +54,6 @@ export default function EditListForm({
 
       try {
         const updated = await updateList(listData.list.id, updates);
-        // After migrating lists to TanStack Query,
-        // invalidate lists query instead of changing zustand state
         removeList(updated.id);
         addList(updated);
         setReturnSlug(updated.slug);

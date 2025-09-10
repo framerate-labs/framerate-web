@@ -73,6 +73,11 @@ export default function MediaActions({ media }: Record<'media', MediaDetails>) {
     queryFn: async () => await getReview(mediaType, mediaId),
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
+    retry: false,
+    onError: () => {
+      // Prompt login instead of showing an error when unauthenticated
+      toast.info('Log in to track likes and watched status');
+    },
   });
 
   const { isLiked, isWatched, debouncedHandleClick } = useMediaActions(
@@ -96,7 +101,8 @@ export default function MediaActions({ media }: Record<'media', MediaDetails>) {
           setSavedToLists((prevState) => [...prevState, savedMedia]);
         }
       } catch (err) {
-        toast.error('Failed to load saved list state');
+        // When logged out, prompt to log in instead of erroring
+        toast.info('Log in to save to your collections');
       }
     }
 

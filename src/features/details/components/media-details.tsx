@@ -19,7 +19,7 @@ export default function MediaDetails({
   return (
     <>
       <div className="-mt-14 grid w-full grid-cols-3 md:-mt-44 md:grid-rows-2 lg:grid-cols-4 lg:grid-rows-none">
-        <aside className="md-tablet:col-end-3 order-2 col-start-3 h-48 w-32 shrink-0 md:order-1 md:col-start-1 md:mt-0 md:mr-6 md:h-[300px] md:w-[200px] lg:col-end-2 lg:h-[345px] lg:w-[230px] xl:mr-16">
+        <aside className="md-tablet:col-end-3 order-2 col-start-3 w-32 shrink-0 md:order-1 md:col-start-1 md:mt-0 md:mr-6 md:w-[200px] lg:col-end-2 lg:w-[230px] xl:mr-16">
           <Poster
             title={title}
             src={posterPath ? posterPath : media.posterPath}
@@ -29,7 +29,7 @@ export default function MediaDetails({
             perspectiveEnabled={true}
             loading="eager"
             fetchPriority="high"
-            classes="w-full h-auto"
+            classes=""
           />
         </aside>
 

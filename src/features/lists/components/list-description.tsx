@@ -36,8 +36,10 @@ export default function ListDescription({ listData }: ListDescriptionProps) {
   return (
     displayData && (
       <div className="mb-8">
-        <h2 className="mb-2 h-7 text-xl font-bold">{displayData.list.name}</h2>
-        <h3 className="text-gray mb-0.5 font-medium">
+        <h2 className="mb-1 text-lg leading-snug font-bold break-words whitespace-normal md:text-xl">
+          {displayData.list.name}
+        </h2>
+        <h3 className="text-gray mb-0.5 text-sm font-medium md:text-base">
           Collection by{' '}
           <Link
             to="/home"
@@ -52,7 +54,7 @@ export default function ListDescription({ listData }: ListDescriptionProps) {
         <p
           onMouseEnter={() => setHovering(true)}
           onMouseLeave={() => setHovering(false)}
-          className="text-medium text-gray relative h-5 w-fit cursor-default text-sm"
+          className="text-medium text-gray relative h-5 w-fit cursor-default text-xs md:text-sm"
         >
           {getElapsedTimeText(hovering, displayData.list)}
         </p>

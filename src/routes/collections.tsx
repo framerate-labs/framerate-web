@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 
 import Header from '@/components/header';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/drawer';
 import PopularListsGrid from '@/features/lists/components/popular-lists-grid';
 import Sidebar from '@/features/lists/components/sidebar';
+import SidebarSkeleton from '@/features/lists/components/sidebar-skeleton';
 import { getLists } from '@/server/lists';
 import { useListStore } from '@/store/lists/list-store';
 
@@ -63,13 +64,27 @@ function CollectionPage() {
             </button>
           </DrawerTrigger>
           <DrawerContent>
-            <DrawerHeader>
+            <DrawerHeader className="sr-only">
               <DrawerTitle>Your Collections</DrawerTitle>
-              <DrawerDescription className="sr-only">
+              <DrawerDescription>
                 Navigate and manage your lists
               </DrawerDescription>
             </DrawerHeader>
-            <div className="overflow-y-auto px-4 pb-4">
+            <div className="overflow-y-auto p-4 pb-4 md:py-0">
+              {isFetching && <SidebarSkeleton />}
+              {!isFetching && !listsAreReady && (
+                <div className="bg-background-dark mx-auto mt-2 max-w-lg rounded-md border border-white/10 p-6 text-center">
+                  <p className="mb-4 text-base font-medium">
+                    Please log in to view your collections.
+                  </p>
+                  <Link
+                    to="/login"
+                    className="inline-block rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/10"
+                  >
+                    Go to Login
+                  </Link>
+                </div>
+              )}
               {listsAreReady && <Sidebar />}
             </div>
           </DrawerContent>
@@ -77,12 +92,24 @@ function CollectionPage() {
       </div>
       <main className="animate-fade-in flex h-[calc(100vh-var(--header-height))] gap-2.5 pb-6">
         <section className="hidden w-[150px] flex-shrink-0 flex-col md:flex md:w-[200px] md:min-w-[200px] lg:w-[240px]">
+          {isFetching && <SidebarSkeleton />}
+          {!isFetching && !listsAreReady && (
+            <div className="bg-background-dark mx-auto mt-2 w-full rounded-md border border-white/10 p-4 text-center">
+              <p className="mb-3 text-sm font-medium">
+                Please log in to view your collections.
+              </p>
+              <Link
+                to="/login"
+                className="inline-block rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10"
+              >
+                Go to Login
+              </Link>
+            </div>
+          )}
           {listsAreReady && <Sidebar />}
         </section>
 
         <section className="scrollbar-hide mx-auto grow overflow-y-auto pr-1">
-          <PopularListsGrid />
-          <PopularListsGrid />
           <PopularListsGrid />
         </section>
       </main>

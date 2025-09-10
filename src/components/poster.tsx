@@ -113,6 +113,14 @@ export default function Poster({
             className={`${classes} ${imageLoaded ? 'animate-fade-in' : 'opacity-0'} peer relative top-0 rounded object-cover drop-shadow select-none`}
           />
         )}
+        {!imageLoaded && (
+          <div
+            aria-hidden
+            className={
+              'absolute inset-0 top-0 animate-pulse rounded bg-white/10 xl:h-[264px] xl:w-44'
+            }
+          />
+        )}
         {/* the radial gradient is positioned according to mouse position */}
         <div className="pointer-events-none absolute inset-0 rounded drop-shadow group-hover:bg-[radial-gradient(at_var(--x)_var(--y),rgba(255,255,255,0.1)_15%,transparent_70%)]" />
       </div>

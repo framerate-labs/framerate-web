@@ -103,7 +103,7 @@ function RouteComponent() {
   }, []);
 
   return (
-    <main className="pb-20">
+    <main className="px-2 pb-20 md:px-0">
       {/* <Backdrop
         collection
         backdropPath="/lvOLivVeX3DVVcwfVkxKf0R22D8.jpg"

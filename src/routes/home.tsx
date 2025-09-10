@@ -55,7 +55,7 @@ function Home() {
       {/* HydrationBoundary is a Client Component, so hydration will happen there */}
       <HydrationBoundary state={dehydrate(queryClient)}>
         <Header />
-        <main className="animate-fade-in pb-14">
+        <main className="animate-fade-in min-h-[calc(100vh-var(--header-height))] pb-14">
           <HomeCarousel trendingMovies={movie} trendingTv={tv} />
         </main>
       </HydrationBoundary>
