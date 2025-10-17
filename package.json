@@ -41,6 +41,7 @@
 		"vite": "^7.1.7"
 	},
 	"dependencies": {
-		"@ianvs/prettier-plugin-sort-imports": "^4.7.0"
+		"@ianvs/prettier-plugin-sort-imports": "^4.7.0",
+		"@vercel/speed-insights": "^1.2.0"
 	}
 }
