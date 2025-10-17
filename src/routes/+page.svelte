@@ -32,8 +32,8 @@
 
 	<div class="mx-auto">
 		<!-- Image -->
-		<section class="relative mx-auto w-full">
-			<div class="mx-auto mt-10 w-[95%] md:mt-14">
+		<section class="relative mx-auto w-[95%]">
+			<div class="mx-auto mt-10 md:mt-14">
 				<img
 					src="https://image.tmdb.org/t/p/original/5syRZHBCzzCwkluq7EMrE8vYdlE.jpg"
 					alt="Julia Garner in Weapons (2025)."

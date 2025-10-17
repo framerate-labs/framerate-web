@@ -1,10 +1,13 @@
 <script lang="ts">
-	import '../app.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { injectSpeedInsights } from '@vercel/speed-insights/sveltekit';
 
-	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { page } from '$app/state';
+
+	import { Toaster } from '$components/ui/sonner';
+	import favicon from '$lib/assets/favicon.svg';
+
+	import '../app.css';
 
 	let { data, children } = $props();
 
@@ -24,6 +27,8 @@
 		content="FrameRate is the ultimate social platform for movie and TV enthusiasts. Share your reviews, create and discover lists, and effortlessly track everything you've watched!"
 	/>
 </svelte:head>
+
+<Toaster />
 
 <QueryClientProvider client={data.queryClient}>
 	<div
