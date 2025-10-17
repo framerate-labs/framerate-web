@@ -6,7 +6,7 @@
 	},
 	"aliases": {
 		"components": "$components",
-		"utils": "$utils",
+		"utils": "$lib/utils",
 		"ui": "$components/ui",
 		"hooks": "$hooks",
 		"lib": "$lib"
