@@ -39,7 +39,6 @@
 			<h2 class="mb-3 ml-2 text-lg font-medium">{group.title}</h2>
 			<Carousel.Root
 				opts={{
-					align: 'start',
 					startIndex: 0,
 					skipSnaps: true
 				}}
