@@ -1,1 +1,22 @@
-<div>Home</div>
+<script lang="ts">
+	import { createQuery } from '@tanstack/svelte-query';
+	import { getTrending } from '$services/trending';
+
+	import HomeCarousel from '$components/home/home-carousel.svelte';
+	import Header from '$components/shared/header.svelte';
+
+	const { data: movieData } = createQuery(() => ({
+		queryKey: ['trending', 'movie', 'week'],
+		queryFn: () => getTrending({ filter: 'movie', timeWindow: 'week' })
+	}));
+
+	const { data: tvData } = createQuery(() => ({
+		queryKey: ['trending', 'tv', 'week'],
+		queryFn: () => getTrending({ filter: 'tv', timeWindow: 'week' })
+	}));
+</script>
+
+<Header />
+<main class="min-h-[calc(100vh-var(--header-height))] animate-fade-in pb-14">
+	<HomeCarousel trendingMovies={movieData} trendingTv={tvData} />
+</main>

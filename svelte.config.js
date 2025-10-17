@@ -22,8 +22,11 @@ const config = {
 			$components: './src/lib/components',
 			$hooks: './src/lib/hooks',
 			$schema: './src/lib/schema',
+			$services: './src/lib/services',
 			$stores: './src/lib/stores',
-			$utils: './src/lib/utils'
+			$types: './src/lib/types',
+			$utils: './src/lib/utils',
+			'@framerate': '../'
 		},
 		experimental: {
 			remoteFunctions: true
