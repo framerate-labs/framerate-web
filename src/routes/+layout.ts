@@ -1,11 +1,12 @@
-import { QueryClient } from '@tanstack/svelte-query';
 import type { LayoutLoad } from './$types';
+
+import { QueryClient } from '@tanstack/svelte-query';
+
 import { browser } from '$app/environment';
 
-// Create once, reuse across navigations
 let queryClient: QueryClient;
 
-export const load: LayoutLoad = () => {
+export const load: LayoutLoad = async ({ data }) => {
 	if (!queryClient) {
 		queryClient = new QueryClient({
 			defaultOptions: {
@@ -18,5 +19,8 @@ export const load: LayoutLoad = () => {
 		});
 	}
 
-	return { queryClient };
+	return {
+		...data,
+		queryClient
+	};
 };

@@ -6,10 +6,25 @@
 
 	import { Toaster } from '$components/ui/sonner';
 	import favicon from '$lib/assets/favicon.svg';
+	import { userStore } from '$lib/stores/user-store.svelte';
 
 	import '../app.css';
 
-	let { data, children } = $props();
+	import type { LayoutProps } from './$types';
+
+	let { data, children }: LayoutProps = $props();
+
+	$effect(() => {
+		if (data.user) {
+			userStore.setUser(data.user);
+		} else {
+			userStore.setUser({
+				email: '',
+				name: 'Guest',
+				username: 'guest'
+			});
+		}
+	});
 
 	injectSpeedInsights();
 
