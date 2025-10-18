@@ -21,7 +21,8 @@
 			userStore.setUser({
 				email: '',
 				name: 'Guest',
-				username: 'guest'
+				username: 'guest',
+				isLoggedIn: false
 			});
 		}
 	});

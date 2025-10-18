@@ -6,6 +6,6 @@ export const load: LayoutServerLoad = async ({ request }) => {
 	const user = await getServerSession(request);
 
 	return {
-		user
+		user: { ...user, isLoggedIn: true }
 	};
 };

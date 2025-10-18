@@ -1,7 +1,8 @@
 export interface User {
-	email: string;
-	name: string;
-	username: string;
+	email?: string;
+	name?: string;
+	username?: string;
+	isLoggedIn: boolean;
 }
 
 class UserStore {
@@ -17,6 +18,10 @@ class UserStore {
 
 	get username() {
 		return this.user?.username;
+	}
+
+	get isLoggedIn() {
+		return this.user?.isLoggedIn;
 	}
 
 	setUser(user: User | null) {
