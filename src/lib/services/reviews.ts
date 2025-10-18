@@ -20,7 +20,8 @@ function isValidRatingString(value: string): boolean {
 	if (typeof value !== 'string' || value.trim() === '') return false;
 	const n = Number(value);
 	if (!Number.isFinite(n)) return false;
-	return n >= 0.5 && n <= 5;
+	// DB uses 1-10 scale with 0.5 steps
+	return n >= 1 && n <= 10;
 }
 
 /**

@@ -90,7 +90,7 @@
 	<div
 		role="presentation"
 		aria-label="Interactive parallax background"
-		onmousedown={handleMouseEnter}
+		onmouseenter={handleMouseEnter}
 		onmouseleave={handleMouseLeave}
 		onmousemove={handleMouseMove}
 		class={perspectiveClasses}

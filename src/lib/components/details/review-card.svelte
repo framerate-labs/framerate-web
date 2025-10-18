@@ -3,6 +3,7 @@
 
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getAvgRating } from '$services/reviews';
+	import { mapRatingToFiveScale } from '$utils/rating';
 
 	import MediaActions from './media-actions.svelte';
 	import RatingForm from './rating-form.svelte';
@@ -24,7 +25,9 @@
 
 	const isStoredReview = $derived(averageQuery.data && averageQuery.data.reviewCount > 0);
 	const avgRating = $derived(
-		averageQuery.data?.avgRating ? parseFloat(averageQuery.data.avgRating.toFixed(2)) : null
+		averageQuery.data?.avgRating
+			? mapRatingToFiveScale(parseFloat(averageQuery.data.avgRating.toFixed(2)))
+			: null
 	);
 	const reviewCount = $derived(averageQuery.data?.reviewCount ?? 0);
 </script>

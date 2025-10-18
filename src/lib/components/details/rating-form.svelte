@@ -2,12 +2,12 @@
 	import type { MediaDetails } from '$types/details';
 
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
+	import { addReview } from '$services/reviews';
 	import { toast } from 'svelte-sonner';
 
 	import { ratingSchema } from '$lib/schemas/review';
 	import { userStore } from '$lib/stores/user-store.svelte';
-	import { validateRating } from '$lib/utils/validate-rating';
-	import { addReview } from '$services/reviews';
+	import { validateRating, mapFiveToTen } from '$lib/utils/rating';
 
 	import StarRating from './star-rating.svelte';
 
@@ -72,7 +72,11 @@
 			return;
 		}
 
-		reviewMutation.mutate(values);
+		// Map UI rating (0.5-5 scale) to DB rating (1-10 scale)
+		const uiRating = parseFloat(parsed.data.rating);
+		const dbRating = mapFiveToTen(uiRating);
+
+		reviewMutation.mutate({ rating: String(dbRating) });
 	}
 </script>
 

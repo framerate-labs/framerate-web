@@ -7,6 +7,7 @@
 	import StarIcon from '$components/icons/star-icon.svelte';
 	import { deleteReview, getReview } from '$services/reviews';
 	import { userStore } from '$stores/user-store.svelte';
+	import { mapRatingToFiveScale } from '$utils/rating';
 
 	type Props = {
 		media: MediaDetails;
@@ -38,8 +39,9 @@
 
 	$effect(() => {
 		if (reviewQuery.data) {
+			// DB stores ratings on 1-10 scale, map to 0.5-5 for display
 			const dbRating = parseFloat(reviewQuery.data.rating);
-			rating = dbRating;
+			rating = mapRatingToFiveScale(dbRating);
 		}
 
 		return () => {
@@ -55,25 +57,21 @@
 			hover = null;
 
 			try {
-				const response = await deleteReview(mediaType, mediaId, queryClient);
-				// delete returns null on success
-				if (response === null) {
-					toast.info('Rating removed');
+				await deleteReview(mediaType, mediaId, queryClient);
+				// If we get here, deletion succeeded
+				toast.info('Rating removed');
 
-					queryClient.invalidateQueries({
-						queryKey: ['average-rating', media.mediaType, media.id]
-					});
-					queryClient.invalidateQueries({
-						queryKey: ['review', mediaType, mediaId]
-					});
-					queryClient.invalidateQueries({
-						queryKey: ['library']
-					});
-					return;
-				}
-				toast.info('Failed to delete rating! Please try again later');
+				queryClient.invalidateQueries({
+					queryKey: ['average-rating', media.mediaType, media.id]
+				});
+				queryClient.invalidateQueries({
+					queryKey: ['review', mediaType, mediaId]
+				});
+				queryClient.invalidateQueries({
+					queryKey: ['library']
+				});
 			} catch {
-				toast.info('Something went wrong while deleting rating! Please try again later');
+				toast.error('Failed to delete rating. Please try again later');
 			}
 		} else {
 			// Set new rating
@@ -96,9 +94,10 @@
 							name="rating"
 							value={ratingValue}
 							aria-label={`Rate ${ratingValue} stars`}
-							onclick={() => {
+							onclick={async () => {
+								const shouldSaveRating = rating !== ratingValue;
 								handleClick(ratingValue);
-								if (rating !== ratingValue) handleRating(ratingValue);
+								if (shouldSaveRating) await handleRating(ratingValue);
 							}}
 							class="hidden"
 						/>
