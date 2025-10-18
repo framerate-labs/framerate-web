@@ -18,11 +18,12 @@ export function validateRating(raw: string): string | null {
  * Maps a rating from a 1–10 (0.5 step) scale
  * to a 0.5–5 (0.5 step) scale.
  *
- * Example:
+ * Simple division by 2 with rounding:
  *  1.0 → 0.5
- *  2.5 → 1.0
+ *  2.0 → 1.0
  *  5.0 → 2.5
- *  7.5 → 4.0
+ *  8.0 → 4.0
+ *  8.5 → 4.5 (rounded from 4.25)
  * 10.0 → 5.0
  */
 export function mapRatingToFiveScale(rating: number): number {
@@ -30,29 +31,26 @@ export function mapRatingToFiveScale(rating: number): number {
 		throw new RangeError('Rating must be between 1 and 10');
 	}
 
-	// Linearly map 1–10 → 0.5–5
-	const scaled = 0.5 + ((rating - 1) / 9) * 4.5;
-
-	// Round to nearest 0.5
-	const rounded = Math.round(scaled * 2) / 2;
-
-	return rounded;
+	// Divide by 2 and round to nearest 0.5
+	const scaled = rating / 2;
+	return Math.round(scaled * 2) / 2;
 }
 
 /**
- * Expands a 0.5–5 (0.5 step) rating to a 1–10 (0.5 step) scale
- * while preserving proportional meaning.
+ * Expands a 0.5–5 (0.5 step) rating to a 1–10 (0.5 step) scale.
+ *
+ * Simple multiplication by 2:
+ * 0.5 → 1.0
+ * 1.0 → 2.0
+ * 2.5 → 5.0
+ * 4.0 → 8.0
+ * 5.0 → 10.0
  */
 export function mapFiveToTen(rating: number): number {
 	if (rating < 0.5 || rating > 5) {
 		throw new RangeError('Rating must be between 0.5 and 5');
 	}
 
-	// Linear map: 0.5–5 → 1–10
-	const scaled = 1 + ((rating - 0.5) / 4.5) * 9;
-
-	// Optional rounding to nearest 0.5 step
-	const rounded = Math.round(scaled * 2) / 2;
-
-	return rounded;
+	// Simply multiply by 2
+	return rating * 2;
 }
