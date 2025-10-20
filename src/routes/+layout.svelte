@@ -12,6 +12,10 @@
 
 	import type { LayoutProps } from './$types';
 
+	import { injectAnalytics } from '@vercel/analytics/sveltekit';
+
+	import { dev } from '$app/environment';
+
 	let { data, children }: LayoutProps = $props();
 
 	$effect(() => {
@@ -28,6 +32,7 @@
 	});
 
 	injectSpeedInsights();
+	injectAnalytics({ mode: dev ? 'development' : 'production' });
 
 	const pathname = $derived(page.url.pathname);
 	const basePaddingClass = $derived(
