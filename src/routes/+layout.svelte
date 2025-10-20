@@ -16,6 +16,8 @@
 
 	import { dev } from '$app/environment';
 
+	import Navbar from '$components/shared/navbar.svelte';
+
 	let { data, children }: LayoutProps = $props();
 
 	$effect(() => {
@@ -49,9 +51,9 @@
 	/>
 </svelte:head>
 
-<Toaster />
-
 <QueryClientProvider client={data.queryClient}>
+	<Toaster />
+
 	<div
 		class={[
 			pathname === '/' ? 'bg-background-landing' : 'bg-background',
@@ -65,4 +67,6 @@
 			{@render children?.()}
 		</main>
 	</div>
+
+	<Navbar />
 </QueryClientProvider>
