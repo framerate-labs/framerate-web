@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Search, SquareLibrary } from '@lucide/svelte';
+	import Search from '@lucide/svelte/icons/search';
 
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -7,6 +7,7 @@
 
 	import CollectionsIcon from '$components/icons/collections-icon.svelte';
 	import HomeIcon from '$components/icons/home-icon.svelte';
+	import LibraryIcon from '$components/icons/library-icon.svelte';
 	import SearchBar from '$components/search/search-bar.svelte';
 	import SearchDialog from '$components/search/search-dialog.svelte';
 	import SearchResultList from '$components/search/search-result-list.svelte';
@@ -28,17 +29,14 @@
 		}
 	});
 
-	// Reference for search button
-	let searchBtn: HTMLButtonElement;
-
-	// Search state
+	let searchBtn: HTMLButtonElement | null = null;
 	let searchQuery = $state('');
-	let searchDialogOpen = $state(false);
 
-	// Track last pressed key for vim-style shortcuts
+	// Track last pressed key for shortcuts
 	let lastKey = '';
 	let lastKeyTimeout: number | undefined;
-	const SEQUENCE_TIMEOUT = 2500; // ms to wait for second key in sequence
+	// ms to wait for second key in sequences
+	const SEQUENCE_TIMEOUT = 2500;
 
 	// Keyboard event handler
 	function handleKeyDown(e: KeyboardEvent) {
@@ -124,13 +122,11 @@
 			href: '/library' as const,
 			key1: 'G',
 			key2: 'L',
-			icon: SquareLibrary
+			icon: LibraryIcon
 		}
 	];
 
-	// Check if a link is active - matches the start of pathname for nested routes
 	function isActive(href: string) {
-		// Exact match for home, or starts with href for nested routes
 		return pathname === href || (href !== '/home' && pathname.startsWith(href + '/'));
 	}
 </script>
@@ -162,20 +158,18 @@
 			</div>
 
 			<!-- Search dialog -->
-			<Dialog bind:open={searchDialogOpen}>
-				<DialogTrigger>
-					<button
-						bind:this={searchBtn}
-						class="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
-					>
-						<Tooltip side="top" sideOffset={14} content="Search" key1="/">
-							<div
-								class="flex size-12 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
-							>
-								<Search width={24} height={48} strokeWidth={1.75} class="relative" />
-							</div>
-						</Tooltip>
-					</button>
+			<Dialog>
+				<DialogTrigger
+					bind:ref={searchBtn}
+					class="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
+				>
+					<Tooltip side="top" sideOffset={14} content="Search" key1="/">
+						<div
+							class="flex size-12 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
+						>
+							<Search width={24} height={48} strokeWidth={1.5} class="relative" />
+						</div>
+					</Tooltip>
 				</DialogTrigger>
 
 				<SearchDialog>

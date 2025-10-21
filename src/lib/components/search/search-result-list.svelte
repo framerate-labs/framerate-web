@@ -2,9 +2,9 @@
 	import type { MediaDetails } from '$types/details';
 	import type { Trending } from '$types/trending';
 
-	import { createQueries, createQuery } from '@tanstack/svelte-query';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { getDetails } from '$services/details';
-	import { searchMedia } from '$services/search';
+	import { searchMediaClient } from '$services/search-client';
 	import { getTrending } from '$services/trending';
 	import { debounce } from '$utils/debounce';
 	import { toast } from 'svelte-sonner';
@@ -13,7 +13,6 @@
 
 	let { query }: { query: string } = $props();
 
-	// Debounced search query
 	let debouncedQuery = $state('');
 	const updateDebouncedQuery = debounce((value: string) => {
 		debouncedQuery = value;
@@ -23,25 +22,20 @@
 		updateDebouncedQuery(query);
 	});
 
-	// Results state
-	let results = $state<Trending[]>([]);
-
-	// Query for trending data (shown when no search query)
+	// Initial data when no search query
 	const trendingQuery = createQuery(() => ({
 		queryKey: ['all-trending-day'],
 		queryFn: () => getTrending({ filter: 'all', timeWindow: 'day' }),
 		staleTime: 10 * 60 * 1000,
-		gcTime: 15 * 60 * 1000
+		gcTime: 20 * 60 * 1000
 	}));
 
-	// Query for search results
 	const searchQuery = createQuery(() => ({
 		queryKey: ['search', debouncedQuery],
 		queryFn: async ({ signal }) => {
 			try {
-				return await searchMedia(debouncedQuery, signal);
+				return await searchMediaClient(debouncedQuery, signal);
 			} catch (_err) {
-				// For now, return empty array since search isn't implemented
 				return [];
 			}
 		},
@@ -50,58 +44,51 @@
 		enabled: debouncedQuery.length > 0
 	}));
 
-	// Queries for details of each result
-	const detailsQueries = createQueries(() => ({
-		queries: results.map((media) => ({
-			queryKey: [`${media.mediaType}-details`, media.id],
-			queryFn: () => getDetails(media.mediaType, media.id.toString()),
-			staleTime: 2 * 60 * 1000,
-			gcTime: 5 * 60 * 1000,
-			enabled: results.length > 0
-		}))
-	}));
-
-	// Update results based on trending or search data
-	$effect(() => {
-		const trending = trendingQuery.data;
-		const search = searchQuery.data;
-		const isSearching = searchQuery.isFetching;
-
+	let sourceResults = $derived.by(() => {
 		if (trendingQuery.error) {
 			toast.error('An error occurred while fetching trending data!', {
 				duration: 5000
 			});
-			return;
+			return [];
 		}
 
 		if (searchQuery.error) {
 			toast.error('Something went wrong while getting search results!');
+			return [];
+		}
+
+		if (debouncedQuery.length === 0 && trendingQuery.data) {
+			return trendingQuery.data.slice(0, 10);
+		}
+
+		if (searchQuery.data) {
+			return searchQuery.data;
+		}
+
+		return [];
+	});
+
+	let detailsData = $state<MediaDetails[]>([]);
+
+	$effect(() => {
+		const results = sourceResults;
+
+		if (results.length === 0) {
+			detailsData = [];
 			return;
 		}
 
-		if (trending && !isSearching && !debouncedQuery) {
-			results = trending.slice(0, 10);
-		}
+		const detailsPromises = results.map((media) =>
+			getDetails(media.mediaType, media.id.toString()).catch((err) => {
+				console.error(`Failed to fetch details for ${media.mediaType} ${media.id}:`, err);
+				return null;
+			})
+		);
 
-		if (search && search.length > 0) {
-			results = search;
-		}
+		Promise.all(detailsPromises).then((fetchedDetails) => {
+			detailsData = fetchedDetails.filter((d): d is MediaDetails => d !== null);
+		});
 	});
-
-	// Check for details query errors
-	$effect(() => {
-		const queries = detailsQueries;
-		if (queries.some((q) => q.error)) {
-			toast.error('An error occurred while fetching media details!', {
-				duration: 5000
-			});
-		}
-	});
-
-	// Extract details data
-	const detailsData = $derived(
-		detailsQueries.map((q) => q.data).filter((data): data is MediaDetails => data !== undefined)
-	);
 </script>
 
 <div

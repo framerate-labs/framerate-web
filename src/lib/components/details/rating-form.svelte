@@ -5,9 +5,9 @@
 	import { addReview } from '$services/reviews';
 	import { toast } from 'svelte-sonner';
 
-	import { ratingSchema } from '$lib/schemas/review';
+	import { ratingSchema } from '$lib/schema/review';
 	import { userStore } from '$lib/stores/user-store.svelte';
-	import { validateRating, mapFiveToTen } from '$lib/utils/rating';
+	import { mapFiveToTen, validateRating } from '$lib/utils/rating';
 
 	import StarRating from './star-rating.svelte';
 

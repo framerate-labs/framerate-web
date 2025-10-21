@@ -44,7 +44,7 @@
 				}}
 			>
 				<Carousel.Content>
-					{#each data as media, index (index)}
+					{#each data as media, index (media.id)}
 						{@const titleSlug = slugify(media.title)}
 						{@const loadingStrategy = index < 7 ? 'eager' : 'lazy'}
 						{@const fetchStrategy = index < 7 ? 'high' : 'low'}
