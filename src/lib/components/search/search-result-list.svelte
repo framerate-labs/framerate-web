@@ -1,9 +1,5 @@
 <script lang="ts">
-	import type { MediaDetails } from '$types/details';
-	import type { Trending } from '$types/trending';
-
 	import { createQuery } from '@tanstack/svelte-query';
-	import { getDetails } from '$services/details';
 	import { searchMediaClient } from '$services/search-client';
 	import { getTrending } from '$services/trending';
 	import { debounce } from '$utils/debounce';
@@ -67,34 +63,12 @@
 
 		return [];
 	});
-
-	let detailsData = $state<MediaDetails[]>([]);
-
-	$effect(() => {
-		const results = sourceResults;
-
-		if (results.length === 0) {
-			detailsData = [];
-			return;
-		}
-
-		const detailsPromises = results.map((media) =>
-			getDetails(media.mediaType, media.id.toString()).catch((err) => {
-				console.error(`Failed to fetch details for ${media.mediaType} ${media.id}:`, err);
-				return null;
-			})
-		);
-
-		Promise.all(detailsPromises).then((fetchedDetails) => {
-			detailsData = fetchedDetails.filter((d): d is MediaDetails => d !== null);
-		});
-	});
 </script>
 
 <div
 	class="scrollbar-hide h-2/3 w-full overflow-auto rounded border border-white/10 bg-background-dark/80 p-2 shadow-sm backdrop-blur-2xl md:h-[350px] md:rounded-lg"
 >
-	{#each detailsData as data (`${data.mediaType}-${data.id}`)}
-		<SearchResult media={data} />
+	{#each sourceResults as result (`${result.mediaType}-${result.id}`)}
+		<SearchResult {result} />
 	{/each}
 </div>

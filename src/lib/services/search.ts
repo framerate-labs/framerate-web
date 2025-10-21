@@ -60,7 +60,7 @@ export async function searchMedia(query: string, signal?: AbortSignal): Promise<
 
 		const rawData = (await response.json()) as SearchResults;
 
-		// Filter out people and convert to Trending format
+		// Filter out people
 		const searchResults = rawData.results
 			.filter((item) => item.media_type !== 'person')
 			.slice(0, 10)

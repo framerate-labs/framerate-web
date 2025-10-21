@@ -1,23 +1,35 @@
 <script lang="ts">
-	import type { MediaDetails } from '$types/details';
+	import type { Trending } from '$types/trending';
 
+	import { createQuery } from '@tanstack/svelte-query';
+	import { getDetails } from '$services/details';
 	import { slugify } from '$utils/strings';
 
 	import { resolve } from '$app/paths';
 
 	import { DialogClose } from '$components/ui/dialog';
 
-	let { media }: { media: MediaDetails } = $props();
+	let { result }: { result: Trending } = $props();
 
-	let title = $derived(media.title);
-	let releaseDate = $derived(media.releaseDate);
+	const detailsQuery = createQuery(() => ({
+		queryKey: [`${result.mediaType}-details`, result.id],
+		queryFn: () => getDetails(result.mediaType, result.id.toString()),
+		staleTime: 5 * 60 * 1000,
+		gcTime: 10 * 60 * 1000
+	}));
 
-	const titleSlug = media.title ? slugify(media.title) : '';
-	const mediaType = media.mediaType === 'movie' ? 'films' : 'series';
-	const route = `/${mediaType}/${String(media.id)}/${titleSlug}` as const;
+	let media = $derived(detailsQuery.data);
+	let title = $derived(media?.title);
+	let releaseDate = $derived(media?.releaseDate);
+
+	const titleSlug = $derived(media?.title ? slugify(media.title) : '');
+	const mediaType = $derived(media?.mediaType === 'movie' ? 'films' : 'series');
+	const route = $derived(
+		media ? (`/${mediaType}/${String(media.id)}/${titleSlug}` as const) : null
+	);
 </script>
 
-{#if title && releaseDate}
+{#if media && title && releaseDate && route}
 	<DialogClose class="w-full">
 		<a
 			href={resolve(
