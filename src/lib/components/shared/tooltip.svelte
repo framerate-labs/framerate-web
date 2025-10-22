@@ -15,7 +15,7 @@
 	}: {
 		side?: 'top' | 'right' | 'bottom' | 'left';
 		sideOffset?: number;
-		content: string;
+		content: Snippet | string;
 		key1?: string;
 		key2?: string;
 		isEnabled?: boolean;
