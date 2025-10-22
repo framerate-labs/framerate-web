@@ -20,12 +20,8 @@
 	// useHotkeys('s', () => {
 	// 	seriesLinkRef.current?.click();
 	// });
-	//
-	let filter = $derived(page.url.searchParams.get('filter'));
 
-	const basePath = resolve('/library');
-	const filmHref = $derived(`${basePath}?filter=film`);
-	const seriesHref = $derived(`${basePath}?filter=series`);
+	let filter = $derived(page.url.searchParams.get('filter'));
 </script>
 
 <div class="flex justify-end gap-2 md:gap-3">
@@ -33,7 +29,7 @@
 		<Tooltip content="Show All" side="top" sideOffset={12} key1="A">
 			<a
 				bind:this={allLinkRef}
-				href={basePath}
+				href={resolve('/library')}
 				class={[
 					'library-filter-btn',
 					filter === null &&
@@ -47,7 +43,7 @@
 		<Tooltip content="Show Films" side="top" sideOffset={12} key1="F">
 			<a
 				bind:this={filmLinkRef}
-				href={resolve(filmHref)}
+				href={resolve('/library?filter=film')}
 				class={[
 					'library-filter-btn',
 					filter === 'film' &&
@@ -61,7 +57,7 @@
 		<Tooltip content="Show Series" side="top" sideOffset={12} key1="S">
 			<a
 				bind:this={seriesLinkRef}
-				href={seriesHref}
+				href={resolve('/library?filter=series')}
 				class={[
 					'library-filter-btn',
 					filter === 'series' &&

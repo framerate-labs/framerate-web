@@ -22,6 +22,8 @@
 		classes?: string;
 		children: Snippet;
 	} = $props();
+
+	const isSnippet = typeof content === 'function';
 </script>
 
 <Tooltip open={isEnabled}>
@@ -30,7 +32,11 @@
 	</TooltipTrigger>
 	<TooltipContent {side} {sideOffset} class="slide-in-from-bottom-2 {classes}">
 		<div class="text-sm font-semibold tracking-wide">
-			{content}
+			{#if isSnippet}
+				{@render content()}
+			{:else}
+				{content}
+			{/if}
 			{#if key1}
 				<span class={key1 && key2 ? 'pl-3.5' : key1 && !key2 ? 'pl-2' : ''}></span>
 				<span class="rounded bg-background-dark px-1 py-[1px] text-xs">

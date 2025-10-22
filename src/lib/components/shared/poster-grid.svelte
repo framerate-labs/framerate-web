@@ -46,7 +46,7 @@
 
 			<TooltipProvider>
 				<Tooltip
-					sideOffset={25}
+					sideOffset={20}
 					side="bottom"
 					{content}
 					{isEnabled}
