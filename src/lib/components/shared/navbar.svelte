@@ -29,6 +29,8 @@
 		}
 	});
 
+	// False positive with reactivity. Ref does not need to be state.
+	// svelte-ignore non_reactive_update
 	let searchBtn: HTMLButtonElement | null = null;
 	let searchQuery = $state('');
 
@@ -159,18 +161,21 @@
 
 			<!-- Search dialog -->
 			<Dialog>
-				<DialogTrigger
-					bind:ref={searchBtn}
-					class="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
-				>
-					<Tooltip side="top" sideOffset={14} content="Search" key1="/">
-						<div
-							class="flex size-12 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
-						>
-							<Search width={24} height={48} strokeWidth={1.5} class="relative" />
-						</div>
-					</Tooltip>
-				</DialogTrigger>
+				<Tooltip side="top" sideOffset={14} content="Search" key1="/">
+					<DialogTrigger
+						bind:ref={searchBtn}
+						class="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
+					>
+						{#snippet child({ props })}
+							<div
+								{...props}
+								class="flex size-12 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
+							>
+								<Search width={24} height={48} strokeWidth={1.5} class="relative" />
+							</div>
+						{/snippet}
+					</DialogTrigger>
+				</Tooltip>
 
 				<SearchDialog>
 					<DialogTitle class="sr-only">Search</DialogTitle>

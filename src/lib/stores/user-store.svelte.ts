@@ -9,7 +9,7 @@ class UserStore {
 	user = $state<User | null>(null);
 
 	get name() {
-		return this.user?.name;
+		return this.user?.name ?? 'Guest';
 	}
 
 	get email() {
