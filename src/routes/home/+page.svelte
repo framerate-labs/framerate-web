@@ -5,12 +5,12 @@
 	import HomeCarousel from '$components/home/home-carousel.svelte';
 	import Header from '$components/shared/header.svelte';
 
-	const { data: movieData } = createQuery(() => ({
+	const movieQuery = createQuery(() => ({
 		queryKey: ['trending', 'movie', 'week'],
 		queryFn: () => getTrending({ filter: 'movie', timeWindow: 'week' })
 	}));
 
-	const { data: tvData } = createQuery(() => ({
+	const tvQuery = createQuery(() => ({
 		queryKey: ['trending', 'tv', 'week'],
 		queryFn: () => getTrending({ filter: 'tv', timeWindow: 'week' })
 	}));
@@ -18,5 +18,7 @@
 
 <Header />
 <main class="min-h-[calc(100vh-var(--header-height))] animate-fade-in pb-14">
-	<HomeCarousel trendingMovies={movieData} trendingTv={tvData} />
+	{#if movieQuery.isSuccess && tvQuery.isSuccess}
+		<HomeCarousel trendingMovies={movieQuery.data} trendingTv={tvQuery.data} />
+	{/if}
 </main>

@@ -9,8 +9,8 @@ import Overlay from './dialog-overlay.svelte';
 import Title from './dialog-title.svelte';
 import Trigger from './dialog-trigger.svelte';
 
-const Root = DialogPrimitive.Root;
-const Portal = DialogPrimitive.Portal;
+const Root = DialogPrimitive?.Root;
+const Portal = DialogPrimitive?.Portal;
 
 export {
 	Root,
