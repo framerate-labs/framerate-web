@@ -13,6 +13,7 @@
 	import SearchResultList from '$components/search/search-result-list.svelte';
 	import { Dialog, DialogDescription, DialogTitle, DialogTrigger } from '$components/ui/dialog';
 	import { TooltipProvider } from '$components/ui/tooltip';
+	import { createGlobalShortcuts } from '$lib/utils/keyboard';
 
 	import Tooltip from './tooltip.svelte';
 
@@ -34,70 +35,18 @@
 	let searchBtn: HTMLButtonElement | null = null;
 	let searchQuery = $state('');
 
-	// Track last pressed key for shortcuts
-	let lastKey = '';
-	let lastKeyTimeout: number | undefined;
-	// ms to wait for second key in sequences
-	const SEQUENCE_TIMEOUT = 2500;
-
-	// Keyboard event handler
-	function handleKeyDown(e: KeyboardEvent) {
+	// Set up keyboard shortcuts
+	$effect(() => {
 		if (!navbarEnabled) return;
 
-		// Handle slash for search
-		if (e.code === 'Slash' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-			e.preventDefault();
-			searchBtn?.click();
-			return;
-		}
-
-		// Handle 'g' key to start sequence
-		if (e.key === 'g' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-			e.preventDefault();
-			lastKey = 'g';
-			if (lastKeyTimeout) clearTimeout(lastKeyTimeout);
-			lastKeyTimeout = window.setTimeout(() => {
-				lastKey = '';
-			}, SEQUENCE_TIMEOUT);
-			return;
-		}
-
-		// Handle second key in sequence
-		if (lastKey === 'g' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-			e.preventDefault();
-			lastKey = '';
-			if (lastKeyTimeout) clearTimeout(lastKeyTimeout);
-
-			switch (e.key) {
-				case 'h':
-					goto(resolve('/home'));
-					break;
-				case 'c':
-					goto(resolve('/collections'));
-					break;
-				case 'l':
-					goto(resolve('/library'));
-					break;
-				// case 'm':
-				// 	goto(resolve('/profile'));
-				// 	break;
-				// case 'p':
-				// 	goto(resolve('/preferences'));
-				// 	break;
-			}
-		}
-	}
-
-	// Set up and clean up keyboard listeners
-	$effect(() => {
-		if (typeof window === 'undefined') return;
-
-		window.addEventListener('keydown', handleKeyDown);
-
-		return () => {
-			window.removeEventListener('keydown', handleKeyDown);
-			if (lastKeyTimeout) clearTimeout(lastKeyTimeout);
-		};
+		return createGlobalShortcuts([
+			{ key: '/', callback: () => searchBtn?.click() },
+			{ sequence: ['g', 'h'], callback: () => goto(resolve('/home')) },
+			{ sequence: ['g', 'c'], callback: () => goto(resolve('/collections')) },
+			{ sequence: ['g', 'l'], callback: () => goto(resolve('/library')) }
+			// { sequence: ['g', 'm'], callback: () => goto(resolve('/profile')) },
+			// { sequence: ['g', 'p'], callback: () => goto(resolve('/preferences')) }
+		]);
 	});
 
 	// Define navigation tabs

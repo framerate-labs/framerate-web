@@ -27,6 +27,7 @@
 			src={`${TMDB_IMAGE_BASE}${backdropPath}`}
 			{alt}
 			loading="lazy"
+			fetchpriority="high"
 			decoding="async"
 			width={1920}
 			height={1080}
