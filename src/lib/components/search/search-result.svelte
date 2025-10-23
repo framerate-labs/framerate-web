@@ -20,7 +20,7 @@
 
 	let media = $derived(detailsQuery.data);
 	let title = $derived(media?.title);
-	let releaseDate = $derived(media?.releaseDate);
+	let releaseYear = $derived(media?.releaseDate?.getFullYear().toString() ?? '');
 
 	const titleSlug = $derived(media?.title ? slugify(media.title) : '');
 	const mediaType = $derived(media?.mediaType === 'movie' ? 'films' : 'series');
@@ -29,7 +29,7 @@
 	);
 </script>
 
-{#if media && title && releaseDate && route}
+{#if media && route}
 	<DialogClose class="w-full">
 		<a
 			href={resolve(
@@ -55,7 +55,8 @@
 			</div>
 			<div class="flex flex-col items-baseline text-left">
 				<p class="text-[15px] font-medium">
-					{title} ({releaseDate.toString().slice(0, 4)})
+					{title}
+					{releaseYear && `(${releaseYear})`}
 				</p>
 				<p
 					class="text-xs font-semibold tracking-wide text-nowrap text-gray md:text-sm md:font-medium"
