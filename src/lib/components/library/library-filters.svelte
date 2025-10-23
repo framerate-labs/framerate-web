@@ -1,34 +1,53 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
+	import { createSearchParamsSchema, useSearchParams } from 'runed/kit';
 
 	import Tooltip from '$components/shared/tooltip.svelte';
 	import { TooltipProvider } from '$components/ui/tooltip';
 	import { shortcut } from '$lib/utils/keyboard';
 
-	let filter = $derived(page.url.searchParams.get('filter'));
+	type FilterValue = 'film' | 'series' | '';
+
+	const schema = createSearchParamsSchema({
+		filter: {
+			type: 'string',
+			default: '' as FilterValue
+		}
+	});
+
+	const params = useSearchParams(schema, {
+		pushHistory: false,
+		noScroll: true,
+		showDefaults: false
+	});
+
+	let filter = $derived(params.filter as FilterValue);
+
+	// Type-safe setter
+	function setFilter(value: FilterValue) {
+		params.filter = value;
+	}
 </script>
 
 <div class="flex justify-end gap-2 md:gap-3">
 	<TooltipProvider>
 		<Tooltip content="Show All" side="top" sideOffset={12} key1="A">
-			<a
+			<button
 				use:shortcut={{ key: 'a' }}
-				href={resolve('/library')}
+				onclick={() => setFilter('')}
 				class={[
 					'library-filter-btn',
-					filter === null &&
+					filter === '' &&
 						'background-highlight-gradient border border-transparent font-semibold text-foreground'
 				]}
 			>
 				All
-			</a>
+			</button>
 		</Tooltip>
 
 		<Tooltip content="Show Films" side="top" sideOffset={12} key1="F">
-			<a
+			<button
 				use:shortcut={{ key: 'f' }}
-				href={resolve('/library?filter=film')}
+				onclick={() => setFilter('film')}
 				class={[
 					'library-filter-btn',
 					filter === 'film' &&
@@ -36,13 +55,13 @@
 				]}
 			>
 				Film
-			</a>
+			</button>
 		</Tooltip>
 
 		<Tooltip content="Show Series" side="top" sideOffset={12} key1="S">
-			<a
+			<button
 				use:shortcut={{ key: 's' }}
-				href={resolve('/library?filter=series')}
+				onclick={() => setFilter('series')}
 				class={[
 					'library-filter-btn',
 					filter === 'series' &&
@@ -50,7 +69,7 @@
 				]}
 			>
 				Series
-			</a>
+			</button>
 		</Tooltip>
 	</TooltipProvider>
 </div>
