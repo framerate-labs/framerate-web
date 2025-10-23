@@ -90,7 +90,7 @@
 			<div
 				class="rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
 			>
-				<nav class="relative flex gap-x-6 px-6 py-0">
+				<nav class="relative flex gap-x-5 px-5 py-0">
 					{#each tabs as tab (tab.id)}
 						{@const Component = tab.icon}
 						<Tooltip side="top" sideOffset={14} content={tab.name} key1={tab.key1} key2={tab.key2}>
@@ -118,7 +118,7 @@
 						{#snippet child({ props })}
 							<div
 								{...props}
-								class="flex size-12 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
+								class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
 							>
 								<Search width={24} height={48} strokeWidth={1.5} class="relative" />
 							</div>
