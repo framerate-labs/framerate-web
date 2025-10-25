@@ -121,45 +121,46 @@
 		<Form.FieldErrors class="mt-1 ml-6 max-w-full font-medium text-wrap text-red-500" />
 	</Form.Field>
 
-	{#if isEmailValidated}
-		<Form.Field {form} name="password" class="mt-3">
-			<Form.Control>
-				{#snippet children({ props })}
-					<Form.Label class="sr-only">Password</Form.Label>
-					<div
-						class={[
-							'relative flex items-center rounded-full bg-white/[0.01] ring-1 ring-white/10',
-							$errors.password && 'ring-1 !ring-red-500'
-						]}
+	<!-- Both email and password fields must be in DOM for password managers to autofill -->
+	<Form.Field {form} name="password" class={['mt-3', !isEmailValidated && 'hidden']}>
+		<Form.Control>
+			{#snippet children({ props })}
+				<Form.Label class="sr-only">Password</Form.Label>
+				<div
+					class={[
+						'relative flex items-center rounded-full bg-white/[0.01] ring-1 ring-white/10',
+						$errors.password && 'ring-1 !ring-red-500'
+					]}
+				>
+					<Input
+						{...props}
+						bind:value={$formData.password}
+						type={isVisible ? 'text' : 'password'}
+						placeholder="your password"
+						autocomplete="current-password"
+						class="auth-input rounded-l-full rounded-r-none bg-transparent ring-0 ring-transparent"
+					/>
+					<button
+						type="button"
+						onclick={() => (isVisible ? (isVisible = false) : (isVisible = true))}
+						class="flex cursor-pointer flex-col items-center pr-3 text-gray transition-colors duration-200 hover:text-foreground"
 					>
-						<Input
-							{...props}
-							bind:value={$formData.password}
-							type={isVisible ? 'text' : 'password'}
-							placeholder="your password"
-							autocomplete="current-password"
-							class="auth-input rounded-l-full rounded-r-none bg-transparent ring-0 ring-transparent"
-						/>
-						<button
-							type="button"
-							onclick={() => (isVisible ? (isVisible = false) : (isVisible = true))}
-							class="flex cursor-pointer flex-col items-center pr-3 text-gray transition-colors duration-200 hover:text-foreground"
-						>
-							{#if isVisible}
-								<Eye size={28} strokeWidth={1.1} />
-							{:else}
-								<EyeOff size={28} strokeWidth={1.1} />
-							{/if}
-						</button>
-					</div>
-				{/snippet}
-			</Form.Control>
-			<Form.Description class="sr-only"
-				>This is the email you used to create your account.</Form.Description
-			>
-			<Form.FieldErrors class="mt-1 ml-6 max-w-80 font-medium text-wrap text-red-500" />
-		</Form.Field>
+						{#if isVisible}
+							<Eye size={28} strokeWidth={1.1} />
+						{:else}
+							<EyeOff size={28} strokeWidth={1.1} />
+						{/if}
+					</button>
+				</div>
+			{/snippet}
+		</Form.Control>
+		<Form.Description class="sr-only"
+			>This is the email you used to create your account.</Form.Description
+		>
+		<Form.FieldErrors class="mt-1 ml-6 max-w-80 font-medium text-wrap text-red-500" />
+	</Form.Field>
 
+	{#if isEmailValidated}
 		<Form.Button
 			type="submit"
 			disabled={$errors.email !== undefined || $errors.password !== undefined}
