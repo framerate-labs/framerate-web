@@ -1,0 +1,9 @@
+{
+	"name": "framerate",
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"compatibility_date": "2025-10-25",
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".svelte-kit/cloudflare"
+	}
+}
