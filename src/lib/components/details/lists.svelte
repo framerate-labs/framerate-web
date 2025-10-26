@@ -2,7 +2,7 @@
 	import type { MediaDetails } from '$types/details';
 	import type { SavedToList } from '$types/lists';
 
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { addListItem, deleteListItem, getLists } from '$services/lists';
 	import { toast } from 'svelte-sonner';
 
@@ -19,6 +19,7 @@
 
 	let { media, savedToLists, onListItemAdded, onListItemRemoved }: Props = $props();
 
+	const queryClient = useQueryClient();
 	const authSession = authClient.useSession();
 	const user = $derived($authSession.data?.user);
 
@@ -55,6 +56,7 @@
 				mediaId: item.movieId ?? item.seriesId
 			};
 			onListItemAdded?.(newListItem);
+			queryClient.invalidateQueries({ queryKey: ['listItems', mediaType, mediaId] });
 			toast.success('Added to list');
 		},
 		onError: () => {
@@ -68,6 +70,7 @@
 		},
 		onSuccess: (_, listItemId) => {
 			onListItemRemoved?.(listItemId);
+			queryClient.invalidateQueries({ queryKey: ['listItems', mediaType, mediaId] });
 			toast.success('Removed from list');
 		},
 		onError: () => {

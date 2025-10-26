@@ -2,7 +2,7 @@
 	import type { MediaDetails } from '$types/details';
 	import type { SavedToList } from '$types/lists';
 
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { updateReview } from '$services/actions';
 	import { getListItem } from '$services/lists';
 	import { getReview } from '$services/reviews';
@@ -27,6 +27,7 @@
 
 	let { media }: Props = $props();
 
+	const queryClient = useQueryClient();
 	const authSession = authClient.useSession();
 	const user = $derived($authSession.data?.user);
 	const { id: mediaId, mediaType } = media;
@@ -55,6 +56,9 @@
 	const updateMutation = createMutation(() => ({
 		mutationFn: async ({ field, value }: { field: 'liked' | 'watched'; value: boolean }) => {
 			return await updateReview({ mediaType, mediaId, field, value });
+		},
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['review', mediaType, mediaId] });
 		},
 		onError: (error, variables) => {
 			const { field, value } = variables;
