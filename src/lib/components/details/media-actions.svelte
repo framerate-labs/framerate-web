@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { MediaDetails } from '$types/details';
+	import type { SavedToList } from '$types/lists';
 
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { updateReview } from '$services/actions';
@@ -20,13 +21,6 @@
 
 	import Lists from './lists.svelte';
 
-	type SavedToList = {
-		listId: number;
-		listItemId: number;
-		mediaType: string;
-		mediaId: number | null;
-	};
-
 	type Props = {
 		media: MediaDetails;
 	};
@@ -34,7 +28,7 @@
 	let { media }: Props = $props();
 
 	const authSession = authClient.useSession();
-	const user = $authSession.data?.user;
+	const user = $derived($authSession.data?.user);
 	const { id: mediaId, mediaType } = media;
 
 	// Local state for optimistic updates
@@ -47,6 +41,14 @@
 		queryFn: () => getReview(mediaType, mediaId),
 		staleTime: 2 * 60 * 1000,
 		gcTime: 5 * 60 * 1000,
+		enabled: user !== undefined
+	}));
+
+	const listItemsQuery = createQuery(() => ({
+		queryKey: ['listItems', mediaType, mediaId],
+		queryFn: () => getListItem(mediaType, mediaId),
+		staleTime: 3 * 60 * 1000,
+		gcTime: 10 * 60 * 1000,
 		enabled: user !== undefined
 	}));
 
@@ -77,17 +79,9 @@
 	});
 
 	$effect(() => {
-		(async function fetchListItem() {
-			try {
-				const savedMedia = await getListItem(mediaType, mediaId);
-				if (savedMedia) {
-					savedToLists = [...savedToLists, savedMedia];
-				}
-			} catch {
-				toast.info('Log in to save to your collections');
-				goto(resolve('/login'));
-			}
-		})();
+		if (listItemsQuery.data) {
+			savedToLists = [listItemsQuery.data];
+		}
 
 		return () => (savedToLists = []);
 	});
@@ -122,6 +116,14 @@
 			isWatched = !isWatched;
 			debouncedMutateWatch(isWatched);
 		}
+	}
+
+	function handleListItemAdded(newListItem: SavedToList) {
+		savedToLists = [...savedToLists, newListItem];
+	}
+
+	function handleListItemRemoved(listItemId: number) {
+		savedToLists = savedToLists.filter((item) => item.listItemId !== listItemId);
 	}
 
 	const actions = [
@@ -190,7 +192,12 @@
 
 				<div class="h-[300px] animate-fade-in overflow-y-scroll">
 					<!-- <CreateList /> -->
-					<Lists {media} {savedToLists} />
+					<Lists
+						{media}
+						{savedToLists}
+						onListItemAdded={handleListItemAdded}
+						onListItemRemoved={handleListItemRemoved}
+					/>
 				</div>
 			</Dialog.Content>
 		</Dialog.Root>

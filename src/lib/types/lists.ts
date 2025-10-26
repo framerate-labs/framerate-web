@@ -26,3 +26,10 @@ export type PopularList = List & {
 	username: string;
 	viewCount: number;
 };
+
+export type SavedToList = {
+	listId: number;
+	listItemId: number;
+	mediaType: 'movie' | 'tv';
+	mediaId: number | null;
+};

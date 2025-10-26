@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { MediaDetails } from '$types/details';
+	import type { SavedToList } from '$types/lists';
 
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { addListItem, deleteListItem, getLists } from '$services/lists';
 	import { toast } from 'svelte-sonner';
 
@@ -9,24 +10,17 @@
 	import CheckboxIcon from '$components/icons/checkbox-icon.svelte';
 	import { authClient } from '$lib/auth-client';
 
-	type SavedToList = {
-		listId: number;
-		listItemId: number;
-		mediaType: string;
-		mediaId: number | null;
-	};
-
 	type Props = {
 		media: MediaDetails;
 		savedToLists: SavedToList[];
+		onListItemAdded?: (item: SavedToList) => void;
+		onListItemRemoved?: (listItemId: number) => void;
 	};
 
-	let { media, savedToLists }: Props = $props();
-
-	let checkboxRef: HTMLInputElement;
+	let { media, savedToLists, onListItemAdded, onListItemRemoved }: Props = $props();
 
 	const authSession = authClient.useSession();
-	const user = $authSession.data?.user;
+	const user = $derived($authSession.data?.user);
 
 	const { mediaType, id: mediaId } = media;
 
@@ -38,42 +32,63 @@
 		enabled: user !== undefined
 	}));
 
-	if (user && listQuery.isFetched && !listQuery.data) {
-		toast.error('Something went wrong while getting lists!');
-	}
+	$effect(() => {
+		if (user && listQuery.isFetched && !listQuery.data) {
+			toast.error('Something went wrong while getting lists!');
+		}
+	});
 
-	async function handleClick(listId: number) {
+	const addListItemMutation = createMutation(() => ({
+		mutationFn: async (requestData: {
+			listId: number;
+			mediaType: 'movie' | 'tv';
+			mediaId: number;
+		}) => {
+			return await addListItem(requestData);
+		},
+		onSuccess: (data) => {
+			const item = data.item;
+			const newListItem: SavedToList = {
+				listId: item.listId,
+				listItemId: item.id,
+				mediaType: item.mediaType,
+				mediaId: item.movieId ?? item.seriesId
+			};
+			onListItemAdded?.(newListItem);
+			toast.success('Added to list');
+		},
+		onError: () => {
+			toast.error('Failed to add to list! Please try again later.');
+		}
+	}));
+
+	const deleteListItemMutation = createMutation(() => ({
+		mutationFn: async (listItemId: number) => {
+			return await deleteListItem(listItemId);
+		},
+		onSuccess: (_, listItemId) => {
+			onListItemRemoved?.(listItemId);
+			toast.success('Removed from list');
+		},
+		onError: () => {
+			toast.error('Failed to remove from list! Please try again later.');
+		}
+	}));
+
+	function handleClick(listId: number) {
 		const matchedLists = savedToLists.filter((savedList) => savedList.listId === listId);
 
-		// Item not saved in clicked list -- add it
+		// Item not saved in selected list -- add it
 		if (matchedLists.length === 0) {
-			const requestData = { listId, mediaType, mediaId };
-
-			try {
-				await addListItem(requestData);
-			} catch {
-				return toast.error('Failed to add to list! Please try again later.');
-			}
-
-			toast.success('Added to list');
+			addListItemMutation.mutate({ listId, mediaType, mediaId });
 		}
 
-		// Item is already saved in the clicked list -- delete it.
+		// Item is already saved in the selected list -- delete it.
 		if (matchedLists.length > 0) {
-			matchedLists.forEach(async (list) => {
-				const { listItemId } = list;
-				try {
-					await deleteListItem(listItemId);
-				} catch {
-					return toast.error('Failed to remove from list! Please try again later.');
-				}
+			matchedLists.forEach((list) => {
+				deleteListItemMutation.mutate(list.listItemId);
 			});
-
-			toast.success('Removed from list');
 		}
-
-		// invalidate queries that had data mutated
-		// Think about list vs list-item query before invalidating
 	}
 
 	const idList = savedToLists.map((savedItem) => savedItem.listId);
@@ -83,7 +98,6 @@
 	{#each listQuery.data as list (list.id)}
 		<label class="mb-2.5 flex w-fit cursor-pointer items-center select-none">
 			<input
-				bind:this={checkboxRef}
 				type="checkbox"
 				name="listId"
 				value={list.id}
