@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { QueryClientProvider } from '@tanstack/svelte-query';
-	import { injectSpeedInsights } from '@vercel/speed-insights/sveltekit';
 
 	import { page } from '$app/state';
 
@@ -11,10 +10,6 @@
 	import '../app.css';
 
 	import type { LayoutProps } from './$types';
-
-	import { injectAnalytics } from '@vercel/analytics/sveltekit';
-
-	import { dev } from '$app/environment';
 
 	import Navbar from '$components/shared/navbar.svelte';
 
@@ -32,9 +27,6 @@
 			});
 		}
 	});
-
-	injectSpeedInsights();
-	injectAnalytics({ mode: dev ? 'development' : 'production' });
 
 	const pathname = $derived(page.url.pathname);
 	const basePaddingClass = $derived(
