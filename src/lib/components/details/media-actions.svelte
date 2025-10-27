@@ -9,6 +9,7 @@
 	import { debounce } from '$utils/debounce';
 	import { toast } from 'svelte-sonner';
 
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 
@@ -169,41 +170,43 @@
 			</Tooltip>
 		{/each}
 
-		<Dialog.Root>
-			<Tooltip side="top" sideOffset={12} content="Save">
-				<Dialog.Trigger>
-					{#snippet child({ props })}
-						<MediaActionsIcons
-							{...props}
-							component="bookmark"
-							fill="#333"
-							classes={[
-								savedToLists.length > 0 ? 'fill-[#32EC44]' : '',
-								'cursor-pointer hover:fill-[#32EC44] h-8'
-							]}
+		{#if browser}
+			<Dialog.Root>
+				<Tooltip side="top" sideOffset={12} content="Save">
+					<Dialog.Trigger>
+						{#snippet child({ props })}
+							<MediaActionsIcons
+								{...props}
+								component="bookmark"
+								fill="#333"
+								classes={[
+									savedToLists.length > 0 ? 'fill-[#32EC44]' : '',
+									'cursor-pointer hover:fill-[#32EC44] h-8'
+								]}
+							/>
+						{/snippet}
+					</Dialog.Trigger>
+				</Tooltip>
+
+				<Dialog.Content
+					class="top-[30%] w-4/5 border border-white/5 bg-background p-6 caret-foreground outline-none md:top-[50%] md:w-1/2 md:max-w-lg"
+				>
+					<Dialog.Header class="mb-4">
+						<Dialog.Title class="mb-0.5 tracking-wide">Update Collections</Dialog.Title>
+						<Dialog.Description>Save or remove content from your collections</Dialog.Description>
+					</Dialog.Header>
+
+					<div class="h-[300px] animate-fade-in overflow-y-scroll">
+						<!-- <CreateList /> -->
+						<Lists
+							{media}
+							{savedToLists}
+							onListItemAdded={handleListItemAdded}
+							onListItemRemoved={handleListItemRemoved}
 						/>
-					{/snippet}
-				</Dialog.Trigger>
-			</Tooltip>
-
-			<Dialog.Content
-				class="top-[30%] w-4/5 border border-white/5 bg-background p-6 caret-foreground outline-none md:top-[50%] md:w-1/2 md:max-w-lg"
-			>
-				<Dialog.Header class="mb-4">
-					<Dialog.Title class="mb-0.5 tracking-wide">Update Collections</Dialog.Title>
-					<Dialog.Description>Save or remove content from your collections</Dialog.Description>
-				</Dialog.Header>
-
-				<div class="h-[300px] animate-fade-in overflow-y-scroll">
-					<!-- <CreateList /> -->
-					<Lists
-						{media}
-						{savedToLists}
-						onListItemAdded={handleListItemAdded}
-						onListItemRemoved={handleListItemRemoved}
-					/>
-				</div>
-			</Dialog.Content>
-		</Dialog.Root>
+					</div>
+				</Dialog.Content>
+			</Dialog.Root>
+		{/if}
 	</TooltipProvider>
 </div>

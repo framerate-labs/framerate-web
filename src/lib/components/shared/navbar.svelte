@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Search from '@lucide/svelte/icons/search';
 
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -109,33 +110,35 @@
 			</div>
 
 			<!-- Search dialog -->
-			<Dialog>
-				<Tooltip side="top" sideOffset={14} content="Search" key1="/">
-					<DialogTrigger
-						bind:ref={searchBtn}
-						class="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
-					>
-						{#snippet child({ props })}
-							<div
-								{...props}
-								class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
-							>
-								<Search width={24} height={48} strokeWidth={1.5} class="relative" />
-							</div>
-						{/snippet}
-					</DialogTrigger>
-				</Tooltip>
+			{#if browser}
+				<Dialog>
+					<Tooltip side="top" sideOffset={14} content="Search" key1="/">
+						<DialogTrigger
+							bind:ref={searchBtn}
+							class="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
+						>
+							{#snippet child({ props })}
+								<div
+									{...props}
+									class="flex size-11 items-center justify-center rounded-full border border-white/10 bg-background-dark/70 shadow-md backdrop-blur-sm"
+								>
+									<Search width={24} height={48} strokeWidth={1.5} class="relative" />
+								</div>
+							{/snippet}
+						</DialogTrigger>
+					</Tooltip>
 
-				<SearchDialog>
-					<DialogTitle class="sr-only">Search</DialogTitle>
-					<DialogDescription class="sr-only">
-						Search for a movie or tv series by name.
-					</DialogDescription>
+					<SearchDialog>
+						<DialogTitle class="sr-only">Search</DialogTitle>
+						<DialogDescription class="sr-only">
+							Search for a movie or tv series by name.
+						</DialogDescription>
 
-					<SearchBar bind:searchQuery />
-					<SearchResultList query={searchQuery} />
-				</SearchDialog>
-			</Dialog>
+						<SearchBar bind:searchQuery />
+						<SearchResultList query={searchQuery} />
+					</SearchDialog>
+				</Dialog>
+			{/if}
 		</div>
 	</TooltipProvider>
 {/if}

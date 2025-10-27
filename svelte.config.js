@@ -8,11 +8,6 @@ const config = {
 	// for more information about preprocessors
 	preprocess: vitePreprocess(),
 
-	compilerOptions: {
-		experimental: {
-			async: true
-		}
-	},
 	kit: {
 		// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
 		// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
@@ -28,9 +23,6 @@ const config = {
 			$types: './src/lib/types',
 			$utils: './src/lib/utils',
 			'@framerate': '../'
-		},
-		experimental: {
-			remoteFunctions: true
 		}
 	}
 };
