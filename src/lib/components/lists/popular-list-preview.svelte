@@ -31,13 +31,13 @@
 	<div class="size-full animate-pulse bg-background-light"></div>
 {/if}
 
-<!-- {#if posters.length !== 0}
+{#if posters.length === 0}
 	<div
 		class="flex size-full items-center justify-center bg-background-light text-xs text-neutral-300"
 	>
 		No preview
 	</div>
-{/if} -->
+{/if}
 
 <div class="grid size-full grid-cols-2 grid-rows-2 gap-0.5 bg-background-light">
 	{#each posters as posterSrc (posterSrc)}

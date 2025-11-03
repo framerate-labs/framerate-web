@@ -10,16 +10,20 @@
 	import Sidebar from '$components/lists/sidebar.svelte';
 	import Header from '$components/shared/header.svelte';
 	import * as Drawer from '$components/ui/drawer/index';
+	import { userStore } from '$stores/user-store.svelte';
 
 	const listsQuery = createQuery(() => ({
 		queryKey: ['lists'],
 		queryFn: getLists,
 		staleTime: 10 * 60 * 1000,
-		gcTime: 20 * 60 * 1000
+		gcTime: 20 * 60 * 1000,
+		retry: 2
 	}));
 
+	const username = userStore.username;
+
 	$effect(() => {
-		if (listsQuery.error) {
+		if (username && listsQuery.error) {
 			toast.error('Failed to load your collections');
 		}
 	});
@@ -43,7 +47,7 @@
 					<Drawer.Description>Navigate and manage your lists</Drawer.Description>
 				</Drawer.Header>
 				<div class="overflow-y-auto p-4 pb-4 md:py-0">
-					{#if listsQuery.isLoading}
+					{#if listsQuery.isFetching}
 						<SidebarSkeleton />
 					{/if}
 
