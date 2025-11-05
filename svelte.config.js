@@ -21,8 +21,7 @@ const config = {
 			$services: './src/lib/services',
 			$stores: './src/lib/stores',
 			$types: './src/lib/types',
-			$utils: './src/lib/utils',
-			'@framerate': '../'
+			$utils: './src/lib/utils'
 		}
 	}
 };

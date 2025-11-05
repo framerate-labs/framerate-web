@@ -20,10 +20,10 @@
 	href={resolve('/[username]/collections/[slug]', { username, slug })}
 	class="group relative flex flex-col overflow-hidden rounded-lg border border-white/10 bg-background transition-colors hover:bg-background-light/40"
 >
-	<div class="h-30 w-full md:h-36 lg:h-44">
+	<div class="h-30 w-full shrink-0 md:h-36 lg:h-44">
 		<PopularListPreview {username} {slug} />
 	</div>
-	<div class="flex h-full grow flex-col items-start justify-between p-3">
+	<div class="flex h-full flex-col items-start justify-between p-3">
 		<h3 class="line-clamp-2 text-sm font-semibold text-foreground group-hover:text-white">
 			{name}
 		</h3>

@@ -35,11 +35,13 @@
 	<div class="mb-3 md:hidden">
 		<Drawer.Root>
 			<Drawer.Trigger>
-				<button
-					class="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium hover:bg-white/10"
-				>
-					View Your Collections
-				</button>
+				{#snippet child({ ...props })}
+					<button
+						class="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium hover:bg-white/10"
+					>
+						View Your Collections
+					</button>
+				{/snippet}
 			</Drawer.Trigger>
 			<Drawer.Content>
 				<Drawer.Header class="sr-only">

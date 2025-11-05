@@ -28,18 +28,16 @@
 </script>
 
 {#if listDataQuery.isFetching && posters.length === 0}
-	<div class="size-full animate-pulse bg-background-light"></div>
-{/if}
-
-{#if posters.length === 0}
+	<div class="size-full shrink-0 animate-pulse bg-background-light"></div>
+{:else if posters.length === 0}
 	<div
-		class="flex size-full items-center justify-center bg-background-light text-xs text-neutral-300"
+		class="flex size-full shrink-0 items-center justify-center bg-background-light text-xs text-neutral-300"
 	>
 		No preview
 	</div>
 {/if}
 
-<div class="grid size-full grid-cols-2 grid-rows-2 gap-0.5 bg-background-light">
+<div class="grid size-full shrink-0 grid-cols-2 grid-rows-2 gap-0.5 bg-background">
 	{#each posters as posterSrc (posterSrc)}
 		<img
 			src={`https://image.tmdb.org/t/p/w185${posterSrc}`}

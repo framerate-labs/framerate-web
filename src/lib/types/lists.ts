@@ -20,6 +20,15 @@ export type ListItem = {
 	createdAt: Date;
 };
 
+export type ListData =
+	| {
+			list: List;
+			isLiked: boolean;
+			isSaved: boolean;
+			listItems: ListItem[];
+	  }
+	| undefined;
+
 export type ActiveList = List;
 
 export type PopularList = List & {
