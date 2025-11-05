@@ -20,11 +20,6 @@
 	}
 
 	let { listData }: Props = $props();
-	let displayData: ListData = $state();
-	let likeCount = $state(0);
-	let saveCount = $state(0);
-	let isLiked = $state(false);
-	let isSaved = $state(false);
 
 	const { username, slug } = page.params as RouteParams;
 
@@ -34,100 +29,80 @@
 
 	const formatter = Intl.NumberFormat('en', { notation: 'compact' });
 
-	// Keep UI in sync with server after mutations and invalidations
-	$effect(() => {
-		if (listData) {
-			displayData = listData;
-			likeCount = listData.list.likeCount;
-			saveCount = listData.list.saveCount;
-			isLiked = listData.isLiked;
-			isSaved = listData.isSaved;
+	let list = $derived(listData?.list);
+	let likeCount = $derived(listData?.list.likeCount ?? 0);
+	let saveCount = $derived(listData?.list.saveCount ?? 0);
+	let isLiked = $derived(listData?.isLiked ?? false);
+	let isSaved = $derived(listData?.isSaved ?? false);
+	let activeUserId = $derived($activeUser.data?.user.id);
+	let isListOwner = $derived(list?.userId === activeUserId);
+
+	async function updateListAction(
+		actionType: 'like' | 'save',
+		currentState: boolean,
+		currentCount: number
+	) {
+		if (!listData || !list) return;
+
+		const countKey = actionType === 'like' ? 'likeCount' : 'saveCount';
+		const stateKey = actionType === 'like' ? 'isLiked' : 'isSaved';
+
+		// Optimistic cache update
+		queryClient.setQueryData(['list-items', username, slug], (old: ListData | undefined) => {
+			if (!old) return old;
+			return {
+				...old,
+				list: {
+					...old.list,
+					[countKey]: currentState ? old.list[countKey] - 1 : old.list[countKey] + 1
+				},
+				[stateKey]: !currentState
+			};
+		});
+
+		try {
+			if (currentState) {
+				await deleteListAction(list.id, actionType);
+			} else {
+				await addListAction(list.id, actionType);
+			}
+		} catch {
+			// Rollback on error
+			queryClient.setQueryData(['list-items', username, slug], (old: ListData | undefined) => {
+				if (!old) return old;
+				return {
+					...old,
+					list: { ...old.list, [countKey]: currentCount },
+					[stateKey]: currentState
+				};
+			});
+			toast.error(`Failed to update ${actionType}! Please try again later`);
 		}
-	});
+	}
 
 	async function updateLike() {
-		if (displayData) {
-			const list = displayData.list;
-
-			if (!isLiked) {
-				likeCount++;
-				isLiked = true;
-				try {
-					await addListAction(list.id, 'like');
-				} catch {
-					toast.error('Failed to like list! Please try again later');
-					likeCount--;
-					isLiked = false;
-				}
-			} else {
-				likeCount--;
-				isLiked = false;
-				try {
-					await deleteListAction(list.id, 'like');
-				} catch {
-					toast.error('Failed to unlike list! Please try again later');
-					likeCount++;
-					isLiked = true;
-				}
-			}
-
-			queryClient.invalidateQueries({
-				queryKey: ['list-items', username, slug]
-			});
-		}
+		await updateListAction('like', isLiked, likeCount);
 	}
 
 	async function updateSave() {
-		if (displayData) {
-			const list = displayData.list;
-
-			if (!isSaved) {
-				saveCount++;
-				isSaved = true;
-				try {
-					await addListAction(list.id, 'save');
-				} catch {
-					toast.error('Failed to save list! Please try again later');
-					saveCount--;
-					isSaved = false;
-				}
-			} else {
-				saveCount--;
-				isSaved = false;
-				try {
-					await deleteListAction(list.id, 'save');
-				} catch {
-					toast.error('Failed to unsave list! Please try again later');
-					saveCount++;
-					isSaved = true;
-				}
-			}
-
-			queryClient.invalidateQueries({
-				queryKey: ['list-items', username, slug]
-			});
-		}
+		await updateListAction('save', isSaved, saveCount);
 	}
 
 	async function handleDelete() {
-		if (displayData) {
-			try {
-				const deleted = await deleteList(displayData.list.id);
-				if (deleted) toast.success('List deleted');
-				queryClient.invalidateQueries({ queryKey: ['lists'] });
-				goto(resolve('/collections'));
-			} catch {
-				toast.error('Failed to delete list! Please try again later');
-			}
+		if (!list) return;
+
+		try {
+			const deleted = await deleteList(list.id);
+			if (deleted) toast.success('List deleted');
+			queryClient.invalidateQueries({ queryKey: ['lists'] });
+			goto(resolve('/collections'));
+		} catch {
+			toast.error('Failed to delete list! Please try again later');
 		}
 	}
-
-	let list = $derived(displayData?.list);
-	let activeUserId = $derived($activeUser.data?.user.id);
-	let isListOwner = $derived(list?.userId === activeUserId);
 </script>
 
-{#if displayData && displayData.listItems?.length > 0}
+{#if listData && listData.listItems?.length > 0}
 	<aside
 		class="relative order-1 flex w-full flex-col items-center self-start rounded-md border border-white/5 bg-background p-3 shadow-md md:order-2 md:w-auto md:p-4 lg:p-6"
 	>

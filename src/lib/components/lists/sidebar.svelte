@@ -10,7 +10,7 @@
 	// import CreateListForm from './create-list-form';
 	import ListDialog from './list-dialog.svelte';
 
-	const username = userStore.username;
+	const username = userStore.username ?? '';
 
 	const listsQuery = createQuery(() => ({
 		queryKey: ['lists'],
@@ -40,7 +40,7 @@
 			{#each lists as list (list.id)}
 				<a
 					href={resolve('/[username]/collections/[slug]', { username, slug: list.slug })}
-					class="group my-1 flex h-12 items-center justify-between gap-3.5 rounded-md py-1.5 pl-2 transition-colors duration-75 ease-in hover:bg-white/[0.08]"
+					class="group my-1 flex h-12 items-center justify-between gap-3.5 rounded-md py-1.5 pl-2 transition-colors duration-75 ease-in hover:bg-white/8"
 				>
 					<p class="text-foreground/70 transition-all group-hover:text-foreground">
 						{list.name}
