@@ -1,131 +1,134 @@
 <script lang="ts">
+	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
+	import { createList } from '$services/lists';
+	import { onClickOutside } from 'runed';
+	import { toast } from 'svelte-sonner';
+	import { superForm } from 'sveltekit-superforms';
+	import { zod4 } from 'sveltekit-superforms/adapters';
+	import { z } from 'zod';
+
+	import PlusIcon from '$components/icons/plus-icon.svelte';
+	import * as Form from '$components/ui/form/index';
+	import { listSchema } from '$schema/list';
+
+	type ListForm = z.infer<typeof listSchema>;
+
+	const queryClient = useQueryClient();
+
+	let isExpanded = $state(false);
+	let lastSuccessTime = $state(0);
+
+	let container = $state<HTMLElement>()!;
+	let inputRef = $state<HTMLInputElement>()!;
+
+	const createListMutation = createMutation(() => ({
+		mutationFn: (name: string) => createList(name),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['lists'] });
+			toast.success('List created successfully');
+			lastSuccessTime = Date.now();
+		},
+		onError: () => {
+			toast.error('Failed to create list. Please try again later.');
+		}
+	}));
+
+	const form = superForm<ListForm>(
+		{ listName: '' },
+		{
+			validators: zod4(listSchema)
+		}
+	);
+
+	const { form: formData, reset, validateForm } = form;
+
+	async function handleSubmit() {
+		const result = await validateForm();
+		if (!result.valid) {
+			form.errors.set({ listName: ['Please enter a valid name'] });
+			return;
+		}
+
+		const listName = $formData.listName;
+		createListMutation.mutate(listName);
+	}
+
+	$effect(() => {
+		if (lastSuccessTime > 0) {
+			reset();
+			isExpanded = false;
+		}
+	});
+
+	function toggleExpanded() {
+		isExpanded = !isExpanded;
+	}
+
+	$effect(() => {
+		if (isExpanded && inputRef) {
+			inputRef.focus();
+		}
+	});
+
+	onClickOutside(
+		() => container,
+		() => {
+			if (isExpanded) {
+				isExpanded = false;
+				reset();
+			}
+		}
+	);
 </script>
 
-<!-- import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
-import { toast } from 'sonner';
-import { useOnClickOutside } from 'usehooks-ts';
-import { z } from 'zod';
+<form class="mb-2.5" onsubmit={handleSubmit}>
+	<Form.Field {form} name="listName" class="mb-2.5 space-y-0">
+		<Form.Control>
+			{#snippet children({ props })}
+				<Form.Label class="sr-only">Collection Name</Form.Label>
+				<label
+					{...props}
+					bind:this={container}
+					class={[
+						isExpanded ? 'w-full' : '',
+						'mb-2.5 flex w-fit cursor-pointer items-center transition-colors duration-150 ease-in-out'
+					]}
+				>
+					<button
+						type="button"
+						onclick={!isExpanded ? toggleExpanded : undefined}
+						class="cursor-pointer"
+					>
+						<PlusIcon fillPrimary={isExpanded ? '#00e4f5' : '#d4d4d8'} fillSecondary="#262626" />
+					</button>
 
-import { PlusIcon } from '@/components/icons/plus-icon';
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
-import { listSchema } from '@/features/lists/schema/list';
-import { createList } from '@/server/lists';
-import { useListStore } from '@/store/lists/list-store';
-
-export default function CreateList() {
-  const { addList } = useListStore();
-  const [isChecked, setIsChecked] = useState<boolean | undefined>();
-
-  const queryClient = useQueryClient();
-
-  const inputRef = useRef<HTMLInputElement>(null);
-  const createListRef = useRef<HTMLInputElement>(null);
-  const labelRef = useRef<HTMLLabelElement>(null);
-
-  const form = useForm<z.infer<typeof listSchema>>({
-    resolver: zodResolver(listSchema),
-    defaultValues: {
-      listName: '',
-    },
-  });
-
-  function handleClickInput() {
-    setIsChecked(inputRef.current?.checked);
-    createListRef.current?.focus();
-  }
-
-  function toggleCreateList() {
-    if (inputRef.current?.checked) {
-      inputRef.current.checked = false;
-      setIsChecked(false);
-    }
-  }
-
-  useOnClickOutside(labelRef as RefObject<HTMLElement>, toggleCreateList);
-
-  async function onSubmit(values: z.infer<typeof listSchema>) {
-    const data = await createList(values.listName);
-
-    if (!data) {
-      return toast.error('Failed to create list. Please try again later.');
-    }
-
-    addList(data);
-    toggleCreateList();
-
-    queryClient.invalidateQueries({ queryKey: ['lists'] });
-
-    return toast.success('List created successfully');
-  }
-
-  function onError(_errors: unknown) {
-    toast.error('Please enter a valid name');
-  }
-
-  return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit, onError)}>
-        <FormField
-          control={form.control}
-          name="listName"
-          render={({ field }) => (
-            <FormItem className="mb-2.5 space-y-0">
-              <FormLabel className="sr-only">Collection Name</FormLabel>
-              <FormControl>
-                <label
-                  ref={labelRef}
-                  className="mb-2.5 flex w-fit cursor-pointer items-center transition-colors duration-150 ease-in-out has-[:checked]:w-full"
-                >
-                  <input
-                    ref={inputRef}
-                    type="checkbox"
-                    name="lists"
-                    value="create"
-                    className="peer hidden"
-                    onClick={handleClickInput}
-                  />
-                  <PlusIcon
-                    fillPrimary={isChecked ? '#00e4f5' : '#d4d4d8'}
-                    fillSecondary="#262626"
-                  />
-                  <span className="ml-1.5 select-none peer-checked:hidden">
-                    Create collection
-                  </span>
-                  <div className="peer-checked:animate-scale-to-right hidden peer-checked:flex peer-checked:grow">
-                    <input
-                      {...field}
-                      ref={createListRef}
-                      type="text"
-                      autoComplete="off"
-                      className="bg-background-light relative ml-1 h-8 w-5/6 rounded rounded-r-none border border-r-0 border-white/5 pr-1 pl-2 text-[15px] leading-8 outline-none md:pr-2"
-                    />
-                    <button
-                      type="submit"
-                      className="bg-background-light h-8 overflow-x-scroll rounded rounded-tl-none rounded-bl-none border border-l-0 border-white/5 pr-2 pl-1 text-sm font-medium transition-colors duration-150 ease-in outline-none hover:text-[#00e4f5] md:pl-2"
-                    >
-                      Create
-                    </button>
-                  </div>
-                </label>
-              </FormControl>
-              <FormDescription className="sr-only">
-                This is the name of the list where you will save movies and TV
-                shows.
-              </FormDescription>
-              <FormMessage className="ml-11 pt-2 text-balance text-red-500" />
-            </FormItem>
-          )}
-        />
-      </form>
-    </Form>
-  );
-} -->
+					{#if !isExpanded}
+						<span class="ml-1.5 select-none">Create collection</span>
+					{:else}
+						<div class="flex grow animate-scale-to-right">
+							<input
+								bind:this={inputRef}
+								bind:value={$formData.listName}
+								name="listName"
+								type="text"
+								autocomplete="off"
+								disabled={createListMutation.isPending}
+								class="relative ml-1 h-8 w-5/6 rounded rounded-r-none border border-r-0 border-white/5 bg-background-light pr-1 pl-2 text-[15px] leading-8 outline-none md:pr-2"
+							/>
+							<Form.Button
+								disabled={createListMutation.isPending}
+								class="h-8 overflow-x-scroll rounded rounded-tl-none rounded-bl-none border border-l-0 border-white/5 bg-background-light pr-2 pl-1 text-sm font-medium text-foreground transition-colors duration-150 ease-in outline-none hover:bg-background-light hover:text-[#00e4f5] disabled:cursor-not-allowed disabled:opacity-50 md:pl-2"
+							>
+								{createListMutation.isPending ? 'Creating...' : 'Create'}
+							</Form.Button>
+						</div>
+					{/if}
+				</label>
+			{/snippet}
+		</Form.Control>
+		<Form.Description class="sr-only"
+			>This is the name of the list where you will save movies and TV shows.</Form.Description
+		>
+		<Form.FieldErrors />
+	</Form.Field>
+</form>

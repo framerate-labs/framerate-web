@@ -20,6 +20,7 @@
 	import { TooltipProvider } from '$components/ui/tooltip';
 	import { authClient } from '$lib/auth-client';
 
+	import CreateList from './create-list.svelte';
 	import Lists from './lists.svelte';
 
 	type Props = {
@@ -197,7 +198,7 @@
 					</Dialog.Header>
 
 					<div class="h-[300px] animate-fade-in overflow-y-scroll">
-						<!-- <CreateList /> -->
+						<CreateList />
 						<Lists
 							{media}
 							{savedToLists}

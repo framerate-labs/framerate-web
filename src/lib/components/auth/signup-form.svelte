@@ -2,6 +2,7 @@
 	import CircleArrowRight from '@lucide/svelte/icons/circle-arrow-right';
 	import Eye from '@lucide/svelte/icons/eye';
 	import EyeOff from '@lucide/svelte/icons/eye-off';
+	import { createList } from '$services/lists';
 	import { toast } from 'svelte-sonner';
 	import { superForm } from 'sveltekit-superforms';
 	import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -89,10 +90,9 @@
 
 							const { data: sessionData } = await authClient.getSession();
 
-							// ADD LIST CREATION
-							// if (sessionData) {
-							// 	await createList('Watchlist');
-							// }
+							if (sessionData) {
+								await createList('Watchlist');
+							}
 
 							await goto(resolve('/home'));
 						},
