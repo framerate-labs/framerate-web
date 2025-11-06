@@ -12,6 +12,7 @@
 	import { page } from '$app/state';
 
 	import MediaActionIcon from '$components/icons/media-actions-icons.svelte';
+	import Carousel from '$components/ui/carousel/carousel.svelte';
 	import * as Dialog from '$components/ui/dialog/index';
 	import { authClient } from '$lib/auth-client';
 
@@ -116,8 +117,9 @@
 
 			<Dialog.Root>
 				<Dialog.Trigger>
-					{#snippet child({ ...props })}
+					{#snippet child({ props })}
 						<button
+							{...props}
 							class="ease cursor-pointer rounded-md border border-white/5 bg-[#28292d] px-4 py-2 font-medium transition-colors duration-150 hover:border-red-500 hover:bg-transparent"
 						>
 							Delete
@@ -145,7 +147,7 @@
 						<Dialog.Close>
 							<button
 								onclick={handleDelete}
-								class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border-red-800 bg-red-700 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-red-800"
+								class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border-red-700 bg-red-800 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-red-700"
 							>
 								Delete
 							</button>

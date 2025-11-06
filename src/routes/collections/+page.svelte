@@ -83,7 +83,7 @@
 		<section
 			class="hidden w-[150px] shrink-0 flex-col md:flex md:w-[200px] md:min-w-[200px] lg:w-60"
 		>
-			{#if listsQuery.isFetching}
+			{#if !listsQuery.data && listsQuery.isFetching}
 				<SidebarSkeleton />
 			{/if}
 
