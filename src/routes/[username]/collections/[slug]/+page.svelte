@@ -15,15 +15,16 @@
 	import ListGrid from '$components/lists/list-grid.svelte';
 	import SideCard from '$components/lists/side-card.svelte';
 
-	const { username, slug } = page.params as RouteParams;
-
-	const listDataQuery = createQuery(() => ({
-		queryKey: ['list-items', username, slug],
-		queryFn: () => getListData(username, slug),
-		staleTime: 5 * 60 * 1000,
-		gcTime: 10 * 60 * 1000,
-		retry: 2
-	}));
+	const listDataQuery = createQuery(() => {
+		const { username, slug } = page.params as RouteParams;
+		return {
+			queryKey: ['list-items', username, slug],
+			queryFn: () => getListData(username, slug),
+			staleTime: 5 * 60 * 1000,
+			gcTime: 10 * 60 * 1000,
+			retry: 2
+		};
+	});
 
 	$effect(() => {
 		if (listDataQuery.isFetched && listDataQuery.data === undefined) {
@@ -60,19 +61,4 @@
 			</div>
 		{/if}
 	</div>
-
-	<!-- <TooltipProvider>
-		<Tooltip side="top" sideOffset={12} content="Scroll to top" key1="T">
-			<button
-				class={[
-					// isArrowVisible ? 'animate-fade-in' : '',
-					// isArrowVisible ? 'opacity-100' : 'pointer-events-none opacity-0',
-					'fixed right-4 bottom-4 rounded-full p-2 shadow-lg transition-colors duration-200 outline-none hover:bg-white/5'
-				]}
-				aria-label="Scroll to top"
-			>
-				<ArrowUp strokeWidth={1.5} />
-			</button>
-		</Tooltip>
-	</TooltipProvider> -->
 </main>

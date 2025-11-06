@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { ListData } from '$types/lists';
+	import type { List, ListData } from '$types/lists';
 	import type { RouteParams } from '../../../routes/[username]/collections/[slug]/edit/$types';
 
-	import { useQueryClient } from '@tanstack/svelte-query';
+	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { addListAction, deleteListAction } from '$services/actions';
 	import { deleteList } from '$services/lists';
 	import { toast } from 'svelte-sonner';
@@ -12,7 +12,6 @@
 	import { page } from '$app/state';
 
 	import MediaActionIcon from '$components/icons/media-actions-icons.svelte';
-	import Carousel from '$components/ui/carousel/carousel.svelte';
 	import * as Dialog from '$components/ui/dialog/index';
 	import { authClient } from '$lib/auth-client';
 
@@ -22,9 +21,10 @@
 
 	let { listData }: Props = $props();
 
-	const { username, slug } = page.params as RouteParams;
-
 	const queryClient = useQueryClient();
+
+	const username = $derived((page.params as RouteParams).username);
+	const slug = $derived((page.params as RouteParams).slug);
 
 	const activeUser = authClient.useSession();
 
@@ -89,17 +89,42 @@
 		await updateListAction('save', isSaved, saveCount);
 	}
 
-	async function handleDelete() {
-		if (!list) return;
+	const deleteMutation = createMutation(() => ({
+		mutationFn: (listId: number) => deleteList(listId),
+		onMutate: async (listId) => {
+			// Cancel any outgoing refetches
+			await queryClient.cancelQueries({ queryKey: ['lists'] });
 
-		try {
-			const deleted = await deleteList(list.id);
-			if (deleted) toast.success('List deleted');
-			queryClient.invalidateQueries({ queryKey: ['lists'] });
-			goto(resolve('/collections'));
-		} catch {
+			// Snapshot the previous value
+			const previousLists = queryClient.getQueryData<List[]>(['lists']);
+
+			// Optimistically remove the list
+			queryClient.setQueryData<List[]>(['lists'], (oldLists) => {
+				if (!oldLists) return [];
+				return oldLists.filter((l) => l.id !== listId);
+			});
+
+			// Return context with snapshot for rollback
+			return { previousLists };
+		},
+		onError: (err, listId, context) => {
+			// Rollback to previous state on error
+			if (context?.previousLists) {
+				queryClient.setQueryData(['lists'], context.previousLists);
+			}
 			toast.error('Failed to delete list! Please try again later');
+		},
+		onSuccess: () => {
+			// Remove (don't invalidate) this specific list page query since it's deleted
+			queryClient.removeQueries({ queryKey: ['list-items', username, slug] });
+			toast.success('List deleted');
+			goto(resolve('/collections'));
 		}
+	}));
+
+	function handleDelete() {
+		if (!list) return;
+		deleteMutation.mutate(list.id);
 	}
 </script>
 

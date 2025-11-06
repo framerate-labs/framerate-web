@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { ListSchema } from '$schema/list';
 	import type { Infer, SuperValidated } from 'sveltekit-superforms';
-	import type { List } from '$lib/types/lists';
 
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
@@ -29,15 +28,7 @@
 			if (form.message) {
 				if (form.message.type === 'success') {
 					toast.success(form.message.text);
-
-					// Optimistically update the cache with the new list
-					if (form.message.data) {
-						queryClient.setQueryData<List[]>(['lists'], (oldLists) => {
-							if (!oldLists) return [form.message.data];
-							return [...oldLists, form.message.data];
-						});
-					}
-
+					queryClient.invalidateQueries({ queryKey: ['lists'] });
 					onSuccess?.();
 				} else if (form.message.type === 'error') {
 					toast.error(form.message.text);

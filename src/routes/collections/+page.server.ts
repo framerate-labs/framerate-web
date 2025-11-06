@@ -1,5 +1,5 @@
-import type { Actions, PageServerLoad } from './$types.js';
 import type { List } from '$lib/types/lists.js';
+import type { Actions, PageServerLoad } from './$types.js';
 
 import { fail } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms';
@@ -35,12 +35,8 @@ export const actions: Actions = {
 				throw toHttpError(error, 'Unable to create list');
 			}
 
-			const createdList = unwrapData<List>(data);
-			form.message = {
-				type: 'success',
-				text: 'Collection created successfully!',
-				data: createdList
-			};
+			unwrapData<List>(data);
+			form.message = { type: 'success', text: 'Collection created successfully!' };
 			return { form };
 		} catch (error) {
 			let errorMessage = 'Failed to create collection. Please try again later.';
@@ -50,7 +46,8 @@ export const actions: Actions = {
 			} else if (error instanceof Error) {
 				// Check for duplicate slug/name constraint violation
 				if (error.message.includes('unique constraint') && error.message.includes('slug')) {
-					errorMessage = 'A collection with this name already exists. Please choose a different name.';
+					errorMessage =
+						'A collection with this name already exists. Please choose a different name.';
 				} else {
 					errorMessage = error.message;
 				}
