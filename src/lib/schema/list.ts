@@ -13,3 +13,6 @@ export const listItemSchema = z.object({
 	mediaType: z.enum(['movie', 'tv']),
 	mediaId: z.number().int().positive().min(1)
 });
+
+export type ListSchema = typeof listSchema;
+export type listItemSchema = typeof listItemSchema;

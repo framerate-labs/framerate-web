@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { PageData } from './$types';
+
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getLists } from '$services/lists';
 	import { toast } from 'svelte-sonner';
@@ -11,6 +13,8 @@
 	import Header from '$components/shared/header.svelte';
 	import * as Drawer from '$components/ui/drawer/index';
 	import { userStore } from '$stores/user-store.svelte';
+
+	let { data }: { data: PageData } = $props();
 
 	const listsQuery = createQuery(() => ({
 		queryKey: ['lists'],
@@ -68,7 +72,7 @@
 					{/if}
 
 					{#if listsQuery.data}
-						<Sidebar />
+						<Sidebar formData={data} />
 					{/if}
 				</div>
 			</Drawer.Content>
@@ -98,7 +102,7 @@
 			{/if}
 
 			{#if listsQuery.data}
-				<Sidebar />
+				<Sidebar formData={data} />
 			{/if}
 		</section>
 

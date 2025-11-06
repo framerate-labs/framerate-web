@@ -1,16 +1,23 @@
 <script lang="ts">
+	import type { PageData } from '../../../routes/collections/$types';
+
 	import Plus from '@lucide/svelte/icons/plus';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getLists } from '$services/lists';
 
 	import { resolve } from '$app/paths';
 
+	import * as AlertDialog from '$components/ui/alert-dialog/index';
 	import { userStore } from '$stores/user-store.svelte';
 
-	// import CreateListForm from './create-list-form';
+	import CreateListForm from './create-list-form.svelte';
 	import ListDialog from './list-dialog.svelte';
 
+	let { formData }: { formData: PageData } = $props();
+
 	const username = userStore.username ?? '';
+
+	let dialogOpen = $state(false);
 
 	const listsQuery = createQuery(() => ({
 		queryKey: ['lists'],
@@ -28,10 +35,12 @@
 	<div class="flex items-center justify-between pr-1 pl-2">
 		<h2 class="text-left text-lg font-semibold">Your Collections</h2>
 		<ListDialog
+			bind:open={dialogOpen}
 			title="Create Collection"
 			description="Fill and submit the form to create a collection"
 			{dialogTrigger}
 			{dialogContent}
+			{footerContent}
 		></ListDialog>
 	</div>
 
@@ -64,5 +73,20 @@
 {/snippet}
 
 {#snippet dialogContent()}
-	<!-- <CreateListForm /> -->
+	<CreateListForm data={formData} onSuccess={() => (dialogOpen = false)} />
+{/snippet}
+
+{#snippet footerContent()}
+	<AlertDialog.Footer class="mt-8">
+		<AlertDialog.Cancel
+			class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-background-light"
+			>Cancel</AlertDialog.Cancel
+		>
+		<AlertDialog.Action
+			type="submit"
+			form="create-list-form"
+			class="inline-flex h-9 cursor-pointer items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-indigo-700"
+			>Create</AlertDialog.Action
+		>
+	</AlertDialog.Footer>
 {/snippet}

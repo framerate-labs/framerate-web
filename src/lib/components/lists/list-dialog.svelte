@@ -9,12 +9,20 @@
 		description: string;
 		footerContent?: Snippet;
 		title: string;
+		open?: boolean;
 	};
 
-	let { dialogContent, dialogTrigger, description, footerContent, title }: Props = $props();
+	let {
+		dialogContent,
+		dialogTrigger,
+		description,
+		footerContent,
+		title,
+		open = $bindable(false)
+	}: Props = $props();
 </script>
 
-<AlertDialog.Root>
+<AlertDialog.Root bind:open>
 	<AlertDialog.Trigger>
 		{@render dialogTrigger()}
 	</AlertDialog.Trigger>
@@ -26,14 +34,14 @@
 			<AlertDialog.Title class={[description ? 'mb-2' : '', 'text-foreground']}>
 				{title}
 			</AlertDialog.Title>
-			<AlertDialog.Description>{description}</AlertDialog.Description>
+			<AlertDialog.Description class="sr-only">{description}</AlertDialog.Description>
 		</AlertDialog.Header>
 		{@render dialogContent()}
-	</AlertDialog.Content>
 
-	{#if footerContent}
-		<AlertDialog.Footer>
-			{@render footerContent()}
-		</AlertDialog.Footer>
-	{/if}
+		{#if footerContent}
+			<AlertDialog.Footer>
+				{@render footerContent()}
+			</AlertDialog.Footer>
+		{/if}
+	</AlertDialog.Content>
 </AlertDialog.Root>
