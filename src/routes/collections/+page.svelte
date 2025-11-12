@@ -12,7 +12,7 @@
 	import Sidebar from '$components/lists/sidebar.svelte';
 	import Header from '$components/shared/header.svelte';
 	import * as Drawer from '$components/ui/drawer/index';
-	import { userStore } from '$stores/user-store.svelte';
+	import { authClient } from '$lib/auth-client';
 
 	let { data }: { data: PageData } = $props();
 
@@ -24,7 +24,8 @@
 		retry: 2
 	}));
 
-	const username = userStore.username;
+	const session = authClient.useSession();
+	const username = $session.data?.user.username;
 
 	$effect(() => {
 		if (username && listsQuery.error) {
