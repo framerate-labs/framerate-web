@@ -39,12 +39,17 @@
 	let isWatched = $state(false);
 	let savedToLists: SavedToList[] = $state([]);
 
+	// Lazy loading state
+	let reviewQueryEnabled = $state(false);
+	let listItemsQueryEnabled = $state(false);
+	let dialogOpen = $state(false);
+
 	const reviewQuery = createQuery(() => ({
 		queryKey: ['review', mediaType, mediaId],
 		queryFn: () => getReview(mediaType, mediaId),
-		staleTime: 2 * 60 * 1000,
+		staleTime: 3 * 60 * 1000,
 		gcTime: 5 * 60 * 1000,
-		enabled: user !== undefined
+		enabled: user !== undefined && reviewQueryEnabled
 	}));
 
 	const listItemsQuery = createQuery(() => ({
@@ -52,7 +57,7 @@
 		queryFn: () => getListItem(mediaType, mediaId),
 		staleTime: 3 * 60 * 1000,
 		gcTime: 10 * 60 * 1000,
-		enabled: user !== undefined
+		enabled: user !== undefined && listItemsQueryEnabled
 	}));
 
 	const updateMutation = createMutation(() => ({
@@ -103,14 +108,26 @@
 		1000
 	);
 
-	function handleClick(actionName: 'like' | 'watch') {
+	async function handleClick(actionName: 'like' | 'watch') {
 		if (!user) {
 			toast.info('Please log in to continue');
 			goto(resolve('/login'));
 			return;
 		}
 
-		if (reviewQuery.data == null) {
+		// Fetch review data if needed (checks cache first, respects staleTime)
+		const reviewData = await queryClient.ensureQueryData({
+			queryKey: ['review', mediaType, mediaId],
+			queryFn: () => getReview(mediaType, mediaId),
+			staleTime: 3 * 60 * 1000
+		});
+
+		// Enable the query subscription for reactive updates after first fetch
+		if (!reviewQueryEnabled) {
+			reviewQueryEnabled = true;
+		}
+
+		if (reviewData == null) {
 			toast.info('Please submit a rating first');
 			return;
 		}
@@ -121,6 +138,24 @@
 		} else {
 			isWatched = !isWatched;
 			debouncedMutateWatch(isWatched);
+		}
+	}
+
+	async function handleDialogOpenChange(open: boolean) {
+		dialogOpen = open;
+
+		// Fetch list items data when dialog opens (checks cache first, respects staleTime)
+		if (open && user) {
+			await queryClient.ensureQueryData({
+				queryKey: ['listItems', mediaType, mediaId],
+				queryFn: () => getListItem(mediaType, mediaId),
+				staleTime: 3 * 60 * 1000
+			});
+
+			// Enable the query subscription for reactive updates after first fetch
+			if (!listItemsQueryEnabled) {
+				listItemsQueryEnabled = true;
+			}
 		}
 	}
 
@@ -172,7 +207,7 @@
 		{/each}
 
 		{#if browser}
-			<Dialog.Root>
+			<Dialog.Root open={dialogOpen} onOpenChange={handleDialogOpenChange}>
 				<Tooltip side="top" sideOffset={12} content="Save">
 					<Dialog.Trigger>
 						{#snippet child({ props })}
@@ -199,12 +234,14 @@
 
 					<div class="h-[300px] animate-fade-in overflow-y-scroll">
 						<CreateList />
-						<Lists
-							{media}
-							{savedToLists}
-							onListItemAdded={handleListItemAdded}
-							onListItemRemoved={handleListItemRemoved}
-						/>
+						{#if listItemsQueryEnabled}
+							<Lists
+								{media}
+								{savedToLists}
+								onListItemAdded={handleListItemAdded}
+								onListItemRemoved={handleListItemRemoved}
+							/>
+						{/if}
 					</div>
 				</Dialog.Content>
 			</Dialog.Root>
