@@ -8,14 +8,15 @@
 	import { resolve } from '$app/paths';
 
 	import * as AlertDialog from '$components/ui/alert-dialog/index';
-	import { userStore } from '$stores/user-store.svelte';
+	import { authClient } from '$lib/auth-client';
 
 	import CreateListForm from './create-list-form.svelte';
 	import ListDialog from './list-dialog.svelte';
 
 	let { formData }: { formData: PageData } = $props();
 
-	const username = userStore.username ?? '';
+	const session = authClient.useSession();
+	const username = $session.data?.user.username;
 
 	let dialogOpen = $state(false);
 
@@ -41,7 +42,7 @@
 			{dialogTrigger}
 			{dialogContent}
 			{footerContent}
-		></ListDialog>
+		/>
 	</div>
 
 	<div class="animate-fade-in">
