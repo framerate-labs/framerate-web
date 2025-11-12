@@ -1,12 +1,22 @@
 export interface User {
 	email?: string;
 	name?: string;
-	username?: string;
+	username: string | null | undefined;
 	isLoggedIn: boolean;
 }
 
+const guestUser: User = {
+	email: '',
+	name: 'Guest',
+	username: 'guest',
+	isLoggedIn: false
+};
+
+type UserStoreStatus = 'empty' | 'ready';
+
 class UserStore {
 	user = $state<User | null>(null);
+	status = $state<UserStoreStatus>('empty');
 
 	get name() {
 		return this.user?.name ?? 'Guest';
@@ -24,12 +34,23 @@ class UserStore {
 		return this.user?.isLoggedIn;
 	}
 
+	get isHydrated() {
+		return this.status === 'ready';
+	}
+
 	setUser(user: User | null) {
 		this.user = user;
+		this.status = 'ready';
+	}
+
+	setGuestUser() {
+		this.user = { ...guestUser };
+		this.status = 'ready';
 	}
 
 	clearUser() {
 		this.user = null;
+		this.status = 'empty';
 	}
 }
 

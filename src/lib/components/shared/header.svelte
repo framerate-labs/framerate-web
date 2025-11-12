@@ -8,6 +8,7 @@
 
 	const isHomePath = $derived(page.url.pathname === '/home');
 	const name = $derived(userStore.name);
+	const greetingReady = $derived(userStore.status === 'ready');
 </script>
 
 <header class="flex h-24 items-center justify-between md:h-[115px]">
@@ -20,9 +21,7 @@
 		</a>
 		<div>
 			<h1 class="text-lg font-semibold md:text-xl">
-				{#if isHomePath && !name}
-					Hello
-				{:else if isHomePath && name}
+				{#if isHomePath && greetingReady}
 					{'Hello, ' + name}
 				{:else}
 					{title}

@@ -6,7 +6,7 @@ import { browser } from '$app/environment';
 
 let queryClient: QueryClient;
 
-export const load: LayoutLoad = async ({ data }) => {
+export const load: LayoutLoad = async () => {
 	if (!queryClient) {
 		queryClient = new QueryClient({
 			defaultOptions: {
@@ -20,7 +20,6 @@ export const load: LayoutLoad = async ({ data }) => {
 	}
 
 	return {
-		...data,
 		queryClient
 	};
 };

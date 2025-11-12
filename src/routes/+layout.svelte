@@ -5,6 +5,7 @@
 
 	import { Toaster } from '$components/ui/sonner';
 	import favicon from '$lib/assets/favicon.svg';
+	import { authClient } from '$lib/auth-client';
 	import { userStore } from '$lib/stores/user-store.svelte';
 
 	import '../app.css';
@@ -15,17 +16,26 @@
 
 	let { data, children }: LayoutProps = $props();
 
+	const authSession = authClient.useSession();
+
 	$effect(() => {
-		if (data.user) {
-			userStore.setUser(data.user);
-		} else {
-			userStore.setUser({
-				email: '',
-				name: 'Guest',
-				username: 'guest',
-				isLoggedIn: false
-			});
+		if ($authSession.isPending) {
+			return;
 		}
+
+		const sessionUser = $authSession.data?.user;
+
+		if (sessionUser) {
+			userStore.setUser({
+				email: sessionUser.email,
+				name: sessionUser.name,
+				username: sessionUser.username,
+				isLoggedIn: true
+			});
+			return;
+		}
+
+		userStore.setGuestUser();
 	});
 
 	const pathname = $derived(page.url.pathname);
