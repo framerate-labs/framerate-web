@@ -1,33 +1,25 @@
 <script lang="ts">
+	import type { List } from '$lib/types/lists';
 	import type { PageData } from '../../../routes/collections/$types';
 
 	import Plus from '@lucide/svelte/icons/plus';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { getLists } from '$services/lists';
 
 	import { resolve } from '$app/paths';
 
 	import * as AlertDialog from '$components/ui/alert-dialog/index';
-	import { authClient } from '$lib/auth-client';
 
 	import CreateListForm from './create-list-form.svelte';
 	import ListDialog from './list-dialog.svelte';
 
-	let { formData }: { formData: PageData } = $props();
+	interface Props {
+		formData: PageData;
+		lists?: List[];
+		username: string;
+	}
 
-	const session = authClient.useSession();
-	const username = $session.data?.user.username;
+	let { formData, lists = [], username }: Props = $props();
 
 	let dialogOpen = $state(false);
-
-	const listsQuery = createQuery(() => ({
-		queryKey: ['lists'],
-		queryFn: getLists,
-		staleTime: 10 * 60 * 1000,
-		gcTime: 20 * 60 * 1000
-	}));
-
-	const lists = $derived(listsQuery.data);
 </script>
 
 <nav
