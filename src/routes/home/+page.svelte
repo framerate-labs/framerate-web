@@ -19,7 +19,9 @@
 
 <Header />
 <main class="min-h-[calc(100vh-var(--header-height))] animate-fade-in pb-14">
-	{#if movieQuery.isError || tvQuery.isError}
+	{#if movieQuery.isPending || tvQuery.isPending}
+		<HomeCarouselSkeleton />
+	{:else if movieQuery.isError || tvQuery.isError}
 		<div
 			class="mx-auto mt-12 max-w-lg rounded-md border border-white/10 bg-background-dark p-6 text-center"
 		>
