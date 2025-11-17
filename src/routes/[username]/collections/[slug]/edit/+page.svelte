@@ -10,7 +10,7 @@
 	import { page } from '$app/state';
 
 	import EditListForm from '$components/lists/edit-list-form.svelte';
-	// import EditListItems from '$components/lists/edit-list-items.svelte';
+	import EditListItems from '$components/lists/edit-list-items.svelte';
 	import { sortTitles } from '$lib/utils/strings';
 
 	let { data }: { data: PageData } = $props();
@@ -87,7 +87,7 @@
 						<span class="text-sm tracking-wide text-gray"> Select poster to remove from list </span>
 					</div>
 
-					<!-- <EditListItems listItems={sortedListItems} {username} {slug} /> -->
+					<EditListItems listItems={sortedListItems} {username} {slug} />
 				</section>
 			{/if}
 		</div>
