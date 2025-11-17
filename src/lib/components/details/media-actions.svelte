@@ -41,7 +41,6 @@
 
 	// Lazy loading state
 	let reviewQueryEnabled = $state(false);
-	let listItemsQueryEnabled = $state(false);
 	let dialogOpen = $state(false);
 
 	const reviewQuery = createQuery(() => ({
@@ -53,11 +52,11 @@
 	}));
 
 	const listItemsQuery = createQuery(() => ({
-		queryKey: ['listItems', mediaType, mediaId],
+		queryKey: ['list-items', mediaType, mediaId],
 		queryFn: () => getListItem(mediaType, mediaId),
 		staleTime: 3 * 60 * 1000,
 		gcTime: 10 * 60 * 1000,
-		enabled: user !== undefined && listItemsQueryEnabled
+		enabled: user !== undefined
 	}));
 
 	const updateMutation = createMutation(() => ({
@@ -141,22 +140,8 @@
 		}
 	}
 
-	async function handleDialogOpenChange(open: boolean) {
+	function handleDialogOpenChange(open: boolean) {
 		dialogOpen = open;
-
-		// Fetch list items data when dialog opens (checks cache first, respects staleTime)
-		if (open && user) {
-			await queryClient.ensureQueryData({
-				queryKey: ['listItems', mediaType, mediaId],
-				queryFn: () => getListItem(mediaType, mediaId),
-				staleTime: 3 * 60 * 1000
-			});
-
-			// Enable the query subscription for reactive updates after first fetch
-			if (!listItemsQueryEnabled) {
-				listItemsQueryEnabled = true;
-			}
-		}
 	}
 
 	function handleListItemAdded(newListItem: SavedToList) {
@@ -234,7 +219,7 @@
 
 					<div class="h-[300px] animate-fade-in overflow-y-scroll">
 						<CreateList />
-						{#if listItemsQueryEnabled}
+						{#if user}
 							<Lists
 								{media}
 								{savedToLists}

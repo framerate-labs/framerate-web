@@ -73,7 +73,7 @@
 					</div>
 
 					<section
-						class="flex h-[220px] items-center justify-center rounded-md bg-background-light md:h-[320px]"
+						class="flex h-[220px] items-center justify-center rounded-md bg-background-light md:h-80"
 					>
 						<p class="text-base font-medium">Image upload coming soon!</p>
 					</section>

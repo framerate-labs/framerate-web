@@ -28,6 +28,10 @@
 	}
 
 	async function handleDeleteItem() {
+		// Get the full list item data for the selected items before deletion
+		const itemsToDelete =
+			listItems?.filter((item) => selectedItems.includes(item.listItemId)) || [];
+
 		for (const item of selectedItems) {
 			try {
 				await deleteListItem(item);
@@ -36,10 +40,18 @@
 				return toast.error('Failed to remove from list');
 			}
 		}
+
 		// Clear selected items
 		selectedItems = [];
-		// Refresh only the edited list page
+
+		// Invalidate the list-items query for this collection
 		await queryClient.invalidateQueries({ queryKey: ['list-items', username, slug] });
+
+		// Invalidate only the specific list-items queries for each deleted item
+		// This prevents unnecessary refetches of unrelated collections
+		for (const item of itemsToDelete) {
+			queryClient.invalidateQueries({ queryKey: ['list-items', item.mediaType, item.mediaId] });
+		}
 	}
 </script>
 
@@ -49,7 +61,10 @@
 			{#each listItems as listItem (listItem.listItemId)}
 				<button onclick={() => handleSelectItem(listItem.listItemId)}>
 					<div
-						class={`${selectedItems.includes(listItem.listItemId) ? 'before:bg-blue-500/50' : ''} pointer-events-none relative mb-2 aspect-[2/3] w-24 duration-200 ease-in before:absolute before:inset-0 before:z-10 before:rounded before:transition-colors sm:w-28 md:w-32 lg:w-36`}
+						class={[
+							selectedItems.includes(listItem.listItemId) ? 'before:bg-blue-500/50' : '',
+							'pointer-events-none relative mb-2 aspect-2/3 w-24 duration-200 ease-in before:absolute before:inset-0 before:z-10 before:rounded before:transition-colors sm:w-28 md:w-32 lg:w-36'
+						]}
 					>
 						{#if listItem.posterPath}
 							<Poster

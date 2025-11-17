@@ -56,7 +56,18 @@
 				mediaId: item.movieId ?? item.seriesId
 			};
 			onListItemAdded?.(newListItem);
-			queryClient.invalidateQueries({ queryKey: ['listItems', mediaType, mediaId] });
+			queryClient.invalidateQueries({ queryKey: ['list-items', mediaType, mediaId] });
+
+			// Invalidate the specific collection that was modified
+			if (user && listQuery.data) {
+				const list = listQuery.data.find((l) => l.id === item.listId);
+				if (list) {
+					queryClient.invalidateQueries({
+						queryKey: ['list-items', user.username, list.slug]
+					});
+				}
+			}
+
 			toast.success('Added to list');
 		},
 		onError: () => {
@@ -70,7 +81,21 @@
 		},
 		onSuccess: (_, listItemId) => {
 			onListItemRemoved?.(listItemId);
-			queryClient.invalidateQueries({ queryKey: ['listItems', mediaType, mediaId] });
+			queryClient.invalidateQueries({ queryKey: ['list-items', mediaType, mediaId] });
+
+			// Invalidate the specific collection that was modified
+			if (user && listQuery.data) {
+				const removedItem = savedToLists.find((item) => item.listItemId === listItemId);
+				if (removedItem) {
+					const list = listQuery.data.find((l) => l.id === removedItem.listId);
+					if (list) {
+						queryClient.invalidateQueries({
+							queryKey: ['list-items', user.username, list.slug]
+						});
+					}
+				}
+			}
+
 			toast.success('Removed from list');
 		},
 		onError: () => {
