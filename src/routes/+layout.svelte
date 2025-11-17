@@ -12,6 +12,8 @@
 
 	import type { LayoutProps } from './$types';
 
+	import DemoBadge from '$components/shared/demo-badge.svelte';
+	import DemoBanner from '$components/shared/demo-banner.svelte';
 	import Navbar from '$components/shared/navbar.svelte';
 
 	let { data, children }: LayoutProps = $props();
@@ -55,6 +57,8 @@
 
 <QueryClientProvider client={data.queryClient}>
 	<Toaster />
+	<DemoBanner />
+	<DemoBadge />
 
 	<div
 		class={[

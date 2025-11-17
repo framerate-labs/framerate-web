@@ -1,8 +1,41 @@
 <script lang="ts">
+	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Fingerprint from '@lucide/svelte/icons/fingerprint';
 	import Ticket from '@lucide/svelte/icons/ticket';
+	import { toast } from 'svelte-sonner';
 
 	import { resolve } from '$app/paths';
+
+	import { apiBaseUrl } from '$lib/services/client-instance';
+
+	let isLoggingIn = $state(false);
+
+	async function handleDemoLogin() {
+		isLoggingIn = true;
+		try {
+			toast.loading('Signing in...', { id: 'sign in' });
+			const response = await fetch(`${apiBaseUrl}/api/v1/demo/login`, {
+				method: 'POST',
+				credentials: 'include'
+			});
+
+			if (!response.ok) {
+				const error = await response.json();
+				console.error('Demo login error:', error);
+				toast.error('Demo account not available. Please try again later.');
+				return;
+			}
+
+			// Force reload to activate the new session
+			window.location.href = '/home';
+		} catch (error) {
+			console.error('Demo login failed:', error);
+			toast.error('Failed to login to demo account');
+		} finally {
+			isLoggingIn = false;
+			toast.dismiss('sign in');
+		}
+	}
 </script>
 
 <div class="relative min-h-screen">
@@ -41,7 +74,7 @@
 					height={1080}
 					decoding="async"
 					loading="eager"
-					class="aspect-[143/100] animate-fade-in rounded-3xl rounded-br-none rounded-bl-none object-cover"
+					class="aspect-143/100 animate-fade-in rounded-3xl rounded-br-none rounded-bl-none object-cover"
 				/>
 				<div class="easing-gradient absolute top-0 right-0 left-0 size-full"></div>
 				<span
@@ -63,13 +96,29 @@
 				</div>
 
 				<!-- CTA -->
-				<a href={resolve('/signup')} class="inline-block">
-					<div
-						class="rounded-full border border-indigo-700 bg-indigo-800/20 px-14 py-2 shadow-md inset-shadow-xs inset-shadow-indigo-600 transition-colors duration-150 ease-in-out hover:bg-indigo-700"
+				<div class="flex flex-col items-center gap-3">
+					<a href={resolve('/signup')} class="inline-block">
+						<div
+							class="rounded-full border border-indigo-700 bg-indigo-800/20 px-14 py-2 shadow-md inset-shadow-xs inset-shadow-indigo-600 transition-colors duration-150 ease-in-out hover:bg-indigo-700"
+						>
+							<span class="font-semibold tracking-wide text-foreground"> Start Tracking </span>
+						</div>
+					</a>
+
+					<button
+						onclick={handleDemoLogin}
+						disabled={isLoggingIn}
+						class="flex items-end gap-1 text-[1.0625rem] font-semibold transition-colors duration-200 disabled:opacity-60"
 					>
-						<span class="font-semibold tracking-wide text-foreground"> Start Tracking </span>
-					</div>
-				</a>
+						Or try the <span class="group flex cursor-pointer items-end gap-1 font-bold"
+							>Demo <ArrowRight
+								strokeWidth={2}
+								size={20}
+								class="mb-[1.5px] cursor-pointer duration-200 group-hover:translate-x-0.5 hover:translate-x-0.5"
+							/></span
+						>
+					</button>
+				</div>
 			</section>
 		</section>
 	</div>
