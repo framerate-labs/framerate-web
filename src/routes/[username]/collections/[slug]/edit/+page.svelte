@@ -32,7 +32,7 @@
 
 	let listData = $derived(listItemsQuery.data);
 
-	const sortedListItems = sortTitles(listItemsQuery.data?.listItems);
+	let sortedListItems = $derived(sortTitles(listItemsQuery.data?.listItems));
 
 	function handleClick() {
 		const path = resolve('/[username]/collections/[slug]', {

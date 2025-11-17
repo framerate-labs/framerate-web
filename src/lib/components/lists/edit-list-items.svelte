@@ -36,8 +36,10 @@
 				return toast.error('Failed to remove from list');
 			}
 		}
+		// Clear selected items
+		selectedItems = [];
 		// Refresh only the edited list page
-		queryClient.invalidateQueries({ queryKey: ['list-items', username, slug] });
+		await queryClient.invalidateQueries({ queryKey: ['list-items', username, slug] });
 	}
 </script>
 
@@ -45,7 +47,7 @@
 	<div class="grid grid-cols-3 gap-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
 		{#if listItems}
 			{#each listItems as listItem (listItem.listItemId)}
-				<div onclick={() => handleSelectItem(listItem.listItemId)}>
+				<button onclick={() => handleSelectItem(listItem.listItemId)}>
 					<div
 						class={`${selectedItems.includes(listItem.listItemId) ? 'before:bg-blue-500/50' : ''} pointer-events-none relative mb-2 aspect-[2/3] w-24 duration-200 ease-in before:absolute before:inset-0 before:z-10 before:rounded before:transition-colors sm:w-28 md:w-32 lg:w-36`}
 					>
@@ -66,7 +68,7 @@
 					<p class="pointer-events-none text-[0.8125rem] font-medium tracking-wide">
 						{listItem.title}
 					</p>
-				</div>
+				</button>
 			{/each}
 		{/if}
 	</div>
