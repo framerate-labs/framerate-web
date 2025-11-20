@@ -4,6 +4,8 @@ A modern, full-stack social platform for movie and TV enthusiasts. Track your vi
 
 Try the Demo [here](https://frame-rate.io)
 
+
+
 | | | |
 |:-------------------------:|:-------------------------:|:-------------------------:|
 |<img width="1132" height="810" alt="landing" src="https://github.com/user-attachments/assets/91c0f26b-1242-4263-813e-34217ed18d58" /><br/>Landing Page|<img width="1100" height="812" alt="home" src="https://github.com/user-attachments/assets/a117e1cb-5426-43a6-9996-66e9b28f941e" /><br/>Home Page|<img width="1093" height="815" alt="collection" src="https://github.com/user-attachments/assets/f0b98826-9b73-4be8-9b6a-a960993ce0a0" /><br/>Collection Page|
@@ -44,7 +46,7 @@ FrameRate is built using modern web technologies including TypeScript, Svelte, T
 ### Backend Integration
 - **API Client**: [Elysia Eden](https://elysiajs.com/eden/overview.html) for type-safe RPC
 - **Authentication**: [Better Auth](https://www.better-auth.com/) with username plugin
-- **Backend Framework**: [Elysia](https://elysiajs.com/) (separate repository)
+- **Backend Framework**: [Elysia](https://elysiajs.com/) in a [separate repository](https://github.com/framerate-labs/framerate-server)
 
 ### External Services
 - **Media Data**: [The Movie Database (TMDB)](https://www.themoviedb.org/) API
@@ -117,14 +119,14 @@ TanStack Query handles all server state with intelligent caching:
 
 ## Future Enhancements
 
-- [ ] Mobile app (Swift-based)
+- [ ] Mobile app (SwiftUI-based)
 - [ ] User profiles with followers/following
 - [ ] Activity feed showing friend reviews
 - [ ] Advanced filtering and sorting in library
 - [ ] Import from Letterboxd, IMDb, or other platforms
 - [ ] Watchlist prioritization and recommendations
 - [ ] User-generated reviews and comments
-- [ ] OAuth integration (Google, GitHub)
+- [ ] OAuth integration (Apple, Google)
 - [ ] Email notifications for updates
 
 ## Project Structure
