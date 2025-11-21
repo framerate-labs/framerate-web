@@ -59,7 +59,7 @@
 	</div>
 
 	<p
-		class="order-3 col-span-3 mx-auto mt-4 w-[95%] text-sm leading-normal font-medium tracking-wider text-pretty"
+		class="order-3 col-span-3 mx-auto mt-4 w-[95%] text-sm leading-normal font-medium tracking-wider text-pretty md:hidden"
 	>
 		{media.overview}
 	</p>
