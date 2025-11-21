@@ -30,7 +30,7 @@
 	<div class="flex flex-col justify-center gap-3 md:flex-row md:items-center">
 		<a
 			href={resolve('/home')}
-			class="mr-2 flex flex-col items-center text-xl leading-5 md:text-2xl"
+			class="mr-2 flex flex-col items-start text-xl leading-5 md:items-center md:text-2xl"
 		>
 			<span class="font-semibold">FrameRate</span>
 		</a>

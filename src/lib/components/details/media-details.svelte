@@ -16,10 +16,10 @@
 </script>
 
 <div
-	class="relative z-10 -mt-14 grid w-full grid-cols-3 md:-mt-44 md:grid-rows-2 lg:grid-cols-4 lg:grid-rows-none"
+	class="relative z-10 mx-auto -mt-14 grid w-full grid-cols-3 md:-mt-44 md:grid-rows-2 lg:grid-cols-4 lg:grid-rows-none"
 >
 	<aside
-		class="md-tablet:col-end-3 order-2 col-start-3 w-32 shrink-0 md:order-1 md:col-start-1 md:mt-0 md:mr-6 md:w-40 lg:col-end-2 lg:w-52 xl:mr-16 2xl:w-[230px]"
+		class="md-tablet:col-end-3 order-2 col-start-3 w-[95%] shrink-0 md:order-1 md:col-start-1 md:mt-0 md:mr-6 md:w-40 lg:col-end-2 lg:w-52 xl:mr-16 2xl:w-[230px]"
 	>
 		<Poster
 			{title}
@@ -51,12 +51,18 @@
 				{media.tagline}
 			</h3>
 			<p
-				class="mt-2 text-sm leading-normal font-medium tracking-wider text-pretty md:text-base md:tracking-wide lg:mt-4"
+				class="mt-2 hidden text-sm leading-normal font-medium tracking-wider text-pretty md:block md:text-base md:tracking-wide lg:mt-4"
 			>
 				{media.overview}
 			</p>
 		</div>
 	</div>
+
+	<p
+		class="order-3 col-span-3 mx-auto mt-4 w-[95%] text-sm leading-normal font-medium tracking-wider text-pretty"
+	>
+		{media.overview}
+	</p>
 
 	<div
 		class="order-4 col-span-3 col-start-1 mx-auto mt-[52px] w-2/3 self-start md:w-[80%] lg:col-start-4"

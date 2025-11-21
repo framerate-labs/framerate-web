@@ -17,7 +17,7 @@
 
 {#if isDemo && !dismissed}
 	<div
-		class="fixed top-0 right-0 left-0 z-50 animate-fade-in border-b border-amber-500/20 bg-amber-600/95 px-4 py-2.5 shadow-md backdrop-blur-sm"
+		class="fixed top-0 right-0 left-0 z-50 animate-fade-in border-b border-amber-500/20 bg-amber-600/90 px-4 py-2.5 shadow-md backdrop-blur-sm"
 	>
 		<div class="mx-auto flex max-w-5xl items-center justify-between gap-4">
 			<p class="text-sm font-medium text-white">

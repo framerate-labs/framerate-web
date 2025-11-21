@@ -48,7 +48,7 @@
 		></div>
 		<!-- Mobile shadow gradient -->
 		<div
-			class="pointer-events-none absolute top-0 block size-full bg-gradient-to-t from-neutral-900 via-transparent to-transparent bg-no-repeat md:hidden"
+			class="mobile-backdrop-fade pointer-events-none absolute top-0 block size-full bg-no-repeat md:hidden"
 		></div>
 	</div>
 {/if}

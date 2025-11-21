@@ -211,7 +211,7 @@
 	}
 
 	body {
-		@apply font-manrope bg-background text-foreground;
+		@apply bg-background font-manrope text-foreground;
 	}
 }
 
@@ -243,11 +243,11 @@
 	}
 
 	.auth-input {
-		@apply placeholder:text-gray h-10 w-80 rounded-full bg-white/[0.01] pr-3 pl-6 leading-10 font-medium ring-1 ring-white/10 outline-none placeholder:font-medium md:text-sm;
+		@apply h-10 w-80 rounded-full bg-white/[0.01] pr-3 pl-6 leading-10 font-medium ring-1 ring-white/10 outline-none placeholder:font-medium placeholder:text-gray md:text-sm;
 	}
 
 	.carousel-container {
-		@apply bg-background-dark relative mb-6 rounded-md p-3 before:absolute before:top-0 before:-right-20 before:bottom-0 before:-left-20 md:p-4;
+		@apply relative mb-6 rounded-md bg-background-dark p-3 before:absolute before:top-0 before:-right-20 before:bottom-0 before:-left-20 md:p-4;
 	}
 
 	.library-filter-btn {
@@ -309,6 +309,28 @@
 				rgba(17, 20, 25, 0.016) 55.87777778%,
 				rgba(17, 20, 25, 0) 58.51851852%
 			);
+	}
+
+	.mobile-backdrop-fade {
+		background: linear-gradient(
+			0deg,
+			#111419 0,
+			#111419 19.48148148%,
+			rgba(17, 20, 25, 0.986) 22.63703704%,
+			rgba(17, 20, 25, 0.945) 25.1%,
+			rgba(17, 20, 25, 0.883) 27.80740741%,
+			rgba(17, 20, 25, 0.803) 31.70740741%,
+			rgba(17, 20, 25, 0.711) 33.74074074%,
+			rgba(17, 20, 25, 0.61) 36.84814815%,
+			rgba(17, 20, 25, 0.504) 39.97407407%,
+			rgba(17, 20, 25, 0.398) 43.05925926%,
+			rgba(17, 20, 25, 0.296) 46.04814815%,
+			rgba(17, 20, 25, 0.203) 48.88148148%,
+			rgba(17, 20, 25, 0.122) 51.5%,
+			rgba(17, 20, 25, 0.059) 53.85185185%,
+			rgba(17, 20, 25, 0.016) 55.87777778%,
+			rgba(17, 20, 25, 0) 58.51851852%
+		);
 	}
 
 	/* Marketing image vignette */
