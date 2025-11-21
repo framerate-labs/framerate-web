@@ -16,8 +16,19 @@
 		gcTime: 60 * 1000 * 5
 	}));
 
-	let pageTitle = $derived(query.data?.title ?? 'FrameRate');
-	let pageDescription = $derived(query.data?.overview ?? 'Movie Details');
+	const movie = $derived(query.data);
+	const pageTitle = $derived.by(() => {
+		const releaseDateString = movie?.releaseDate ? `(${movie.releaseDate.getFullYear()})` : '';
+		return movie ? `${movie.title} ${releaseDateString} - FrameRate` : 'FrameRate';
+	});
+
+	const pageDescription = $derived(
+		movie?.overview
+			? movie.overview.length > 160
+				? movie.overview.substring(0, 157) + '...'
+				: movie.overview
+			: 'Movie details on FrameRate'
+	);
 </script>
 
 <svelte:head>

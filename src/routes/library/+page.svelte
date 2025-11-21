@@ -17,6 +17,14 @@
 	}));
 </script>
 
+<svelte:head>
+	<title>My Library - FrameRate</title>
+	<meta
+		name="description"
+		content="Your personal library of liked, watched, and saved movies and series. Filter and browse your collections on FrameRate."
+	/>
+</svelte:head>
+
 <Header title="Library" />
 
 <main class="animate-fade-in">

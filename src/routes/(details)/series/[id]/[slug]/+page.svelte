@@ -16,8 +16,19 @@
 		gcTime: 60 * 1000 * 5
 	}));
 
-	let pageTitle = $derived(query.data?.title ?? 'FrameRate');
-	let pageDescription = $derived(query.data?.overview ?? 'Series Details');
+	const series = $derived(query.data);
+	const pageTitle = $derived.by(() => {
+		const releaseDateString = series?.releaseDate ? `(${series.releaseDate.getFullYear()})` : '';
+		return series ? `${series.title} ${releaseDateString} - FrameRate` : 'FrameRate';
+	});
+
+	const pageDescription = $derived(
+		series?.overview
+			? series.overview.length > 160
+				? series.overview.substring(0, 157) + '...'
+				: series.overview
+			: 'Series details on FrameRate'
+	);
 </script>
 
 <svelte:head>

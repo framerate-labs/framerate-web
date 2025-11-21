@@ -19,6 +19,14 @@
 	});
 </script>
 
+<svelte:head>
+	<title>Login - FrameRate</title>
+	<meta
+		name="description"
+		content="Log in to your FrameRate account to rate, review, and create collections of your favorite movies and TV series."
+	/>
+</svelte:head>
+
 {#if !reduceMotion}
 	<div
 		aria-hidden={true}

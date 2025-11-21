@@ -1,6 +1,4 @@
 <script lang="ts">
-	// import ArrowUp from '@lucide/svelte/icons/arrow-up';
-
 	import type { RouteParams } from '../../../[username]/collections/[slug]/$types';
 
 	import ArrowLeftCircle from '@lucide/svelte/icons/circle-arrow-left';
@@ -34,7 +32,20 @@
 
 	let listData = $derived(listDataQuery.data);
 	let isFetching = $derived(listDataQuery.isFetching);
+
+	const pageTitle = $derived.by(() => {
+		const { username } = page.params as RouteParams;
+		return listData
+			? `${listData.list.name} by ${username} - FrameRate`
+			: 'User Collection - FrameRate';
+	});
+	const pageDescription = 'Explore user-created collections of movies and TV series on FrameRate.';
 </script>
+
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDescription} />
+</svelte:head>
 
 <main class="px-2 pb-20 md:px-0">
 	<!-- <Backdrop

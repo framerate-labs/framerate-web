@@ -58,6 +58,14 @@
 	});
 </script>
 
+<svelte:head>
+	<title>Popular Collections - FrameRate</title>
+	<meta
+		name="description"
+		content="Explore curated collections of films and series. Find your next binge-watch from our popular and user-created lists."
+	/>
+</svelte:head>
+
 <div class="size-full">
 	<Header title="Collections" />
 	<!-- Mobile drawer trigger for sidebar -->

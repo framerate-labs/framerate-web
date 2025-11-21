@@ -26,6 +26,14 @@
 	}
 </script>
 
+<svelte:head>
+	<title>Sign Up - FrameRate</title>
+	<meta
+		name="description"
+		content="Create a FrameRate account to start rating, reviewing, and building your personal library of movies and TV series."
+	/>
+</svelte:head>
+
 {#if !reduceMotion}
 	<div
 		aria-hidden={true}

@@ -17,6 +17,14 @@
 	}));
 </script>
 
+<svelte:head>
+	<title>Home - FrameRate</title>
+	<meta
+		name="description"
+		content="Discover the latest trending movies and TV series. Browse popular collections and see what's new on FrameRate."
+	/>
+</svelte:head>
+
 <Header />
 <main class="min-h-[calc(100vh-var(--header-height))] animate-fade-in pb-14">
 	{#if movieQuery.isPending || tvQuery.isPending}
