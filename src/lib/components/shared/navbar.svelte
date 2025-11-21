@@ -101,6 +101,7 @@
 									isActive(tab.href) ? 'text-[#522aff]' : 'text-neutral-200',
 									'relative flex items-center justify-center bg-transparent transition-all duration-200 ease-in-out before:absolute before:top-0 before:bottom-0 before:my-auto before:size-8 before:rounded-full before:transition-all before:duration-200 before:ease-in-out hover:text-[#522aff] focus:outline-[#522aff]'
 								]}
+								aria-label={tab.name}
 							>
 								<Component />
 							</a>
@@ -116,6 +117,7 @@
 						<DialogTrigger
 							bind:ref={searchBtn}
 							class="relative text-neutral-200 outline-0 transition-colors duration-200 ease-in-out hover:text-[#522aff]"
+							aria-label="Search"
 						>
 							{#snippet child({ props })}
 								<div

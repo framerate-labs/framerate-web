@@ -48,7 +48,13 @@
 	{#if user}
 		<TooltipProvider>
 			<Tooltip content="Log out" side="bottom" sideOffset={14}>
-				<LogOut strokeWidth={1.5} size={18} onclick={handleLogOut} class="cursor-pointer" />
+				<LogOut
+					strokeWidth={1.5}
+					size={18}
+					onclick={handleLogOut}
+					class="cursor-pointer"
+					aria-label="Log out"
+				/>
 			</Tooltip>
 		</TooltipProvider>
 	{/if}

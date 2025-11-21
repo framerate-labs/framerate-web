@@ -6,7 +6,6 @@
 	import { updateReview } from '$services/actions';
 	import { getListItem } from '$services/lists';
 	import { getReview } from '$services/reviews';
-	import { debounce } from '$utils/debounce';
 	import { toast } from 'svelte-sonner';
 
 	import { browser } from '$app/environment';
