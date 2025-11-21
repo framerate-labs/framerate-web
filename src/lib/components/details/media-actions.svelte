@@ -61,6 +61,8 @@
 
 	const updateMutation = createMutation(() => ({
 		mutationFn: async ({ field, value }: { field: 'liked' | 'watched'; value: boolean }) => {
+			if (field === 'liked') isLiked = value;
+			if (field === 'watched') isWatched = value;
 			return await updateReview({ mediaType, mediaId, field, value });
 		},
 		onSuccess: () => {
@@ -96,17 +98,6 @@
 		return () => (savedToLists = []);
 	});
 
-	// Debounced mutation functions
-	const debouncedMutateLike = debounce(
-		(value: boolean) => updateMutation.mutate({ field: 'liked', value }),
-		1000
-	);
-
-	const debouncedMutateWatch = debounce(
-		(value: boolean) => updateMutation.mutate({ field: 'watched', value }),
-		1000
-	);
-
 	async function handleClick(actionName: 'like' | 'watch') {
 		if (!user) {
 			toast.info('Please log in to continue');
@@ -132,11 +123,9 @@
 		}
 
 		if (actionName === 'like') {
-			isLiked = !isLiked;
-			debouncedMutateLike(isLiked);
+			updateMutation.mutate({ field: 'liked', value: !isLiked });
 		} else {
-			isWatched = !isWatched;
-			debouncedMutateWatch(isWatched);
+			updateMutation.mutate({ field: 'watched', value: !isWatched });
 		}
 	}
 
