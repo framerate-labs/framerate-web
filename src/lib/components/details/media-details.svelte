@@ -19,7 +19,7 @@
 	class="relative z-10 -mt-14 grid w-full grid-cols-3 md:-mt-44 md:grid-rows-2 lg:grid-cols-4 lg:grid-rows-none"
 >
 	<aside
-		class="md-tablet:col-end-3 order-2 col-start-3 w-32 shrink-0 md:order-1 md:col-start-1 md:mt-0 md:mr-6 md:w-[200px] lg:col-end-2 lg:w-[230px] xl:mr-16"
+		class="md-tablet:col-end-3 order-2 col-start-3 w-32 shrink-0 md:order-1 md:col-start-1 md:mt-0 md:mr-6 md:w-40 lg:col-end-2 lg:w-52 xl:mr-16 2xl:w-[230px]"
 	>
 		<Poster
 			{title}
