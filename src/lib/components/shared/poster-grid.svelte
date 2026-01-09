@@ -2,6 +2,8 @@
 	import type { ListItem } from '$types/lists';
 	import type { Review } from '$types/ratings';
 
+	import { mapRatingToFiveScale } from '$utils/rating';
+
 	import { resolve } from '$app/paths';
 
 	import StarIcon from '$components/icons/star-icon.svelte';
@@ -27,7 +29,8 @@
 		{#each mediaArray as media, index (media.mediaId)}
 			{@const route = media.mediaType === 'movie' ? filmRoute : seriesRoute}
 			{@const titleSlug = slugify(media.title)}
-			{@const rating = 'rating' in media && parseFloat(media.rating)}
+			{@const dbRating = 'rating' in media ? parseFloat(media.rating) : 0}
+			{@const rating = mapRatingToFiveScale(dbRating)}
 			{@const loadStrategy = index < 18 ? 'eager' : 'lazy'}
 			{@const fetchStrategy = index < 18 ? 'high' : 'low'}
 
