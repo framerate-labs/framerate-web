@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { QueryClientProvider } from '@tanstack/svelte-query';
+	import { setupConvex } from 'convex-svelte';
 
 	import { page } from '$app/state';
+	import { PUBLIC_CONVEX_URL } from '$env/static/public';
 
 	import { Toaster } from '$components/ui/sonner';
 	import favicon from '$lib/assets/favicon.svg';
@@ -17,6 +19,7 @@
 	import Navbar from '$components/shared/navbar.svelte';
 
 	let { data, children }: LayoutProps = $props();
+	setupConvex(PUBLIC_CONVEX_URL);
 
 	const authSession = authClient.useSession();
 
