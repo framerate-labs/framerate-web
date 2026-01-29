@@ -1,4 +1,4 @@
-const clientId = process.env.VITE_WORKOS_CLIENT_ID;
+const clientId = process.env.WORKOS_CLIENT_ID;
 
 const authConfig = {
 	providers: [
