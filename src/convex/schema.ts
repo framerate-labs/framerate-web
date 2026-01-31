@@ -21,6 +21,21 @@ const trendingMediaValidator = v.object({
 	knownForDepartment: v.optional(v.union(v.string(), v.null()))
 });
 
+// User session management for secure token refresh
+// Refresh tokens are stored server-side for security
+const userSessionValidator = v.object({
+	userId: v.string(), // WorkOS user ID (identity.subject)
+	refreshToken: v.string(), // WorkOS refresh token
+	sessionId: v.string(), // WorkOS session ID (from JWT 'sid' claim)
+	deviceSecretHash: v.string(), // SHA-256 of device-bound secret
+	expiresAt: v.optional(v.number()), // When refresh token expires (if known)
+	createdAt: v.number(),
+	updatedAt: v.number(),
+	// Track refresh token rotation
+	previousRefreshToken: v.optional(v.string()), // For detecting token reuse attacks
+	rotatedAt: v.optional(v.number())
+});
+
 export default defineSchema({
 	appConfig: defineTable({
 		heroImage: v.object({
@@ -110,5 +125,11 @@ export default defineSchema({
 	})
 		.index('by_userId', ['userId']) // For fetching all user's reviews
 		.index('by_tvShowId', ['tvShowId']) // For computing average ratings
-		.index('by_userId_tvShowId', ['userId', 'tvShowId']) // For fetching specific review (most common query)
+		.index('by_userId_tvShowId', ['userId', 'tvShowId']), // For fetching specific review (most common query)
+
+	// User Sessions - secure server-side storage of refresh tokens
+	// Refresh tokens are never sent to the client after initial login
+	userSessions: defineTable(userSessionValidator)
+		.index('by_userId', ['userId'])
+		.index('by_sessionId', ['sessionId'])
 });

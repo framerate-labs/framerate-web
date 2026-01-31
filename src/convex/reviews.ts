@@ -219,6 +219,93 @@ export const getAverage = query({
 });
 
 /**
+ * Query: Get rating distribution for a media item.
+ *
+ * Public endpoint - no authentication required.
+ * Returns counts for 0.5 rating buckets (1.0 → 10.0).
+ *
+ * @param mediaType - "movie" | "tv"
+ * @param source - Data source ("tmdb" | "trakt" | "imdb")
+ * @param externalId - External ID from the source
+ * @returns { counts: number[], totalCount: number }
+ */
+export const getDistribution = query({
+	args: {
+		mediaType: mediaTypeValidator,
+		source: sourceValidator,
+		externalId: v.union(v.number(), v.string())
+	},
+	handler: async (ctx, args) => {
+		const minRating = 1;
+		const maxRating = 10;
+		const bucketSize = 0.5;
+		const bucketCount = Math.round((maxRating - minRating) / bucketSize) + 1;
+		const empty = {
+			counts: Array(bucketCount).fill(0),
+			totalCount: 0
+		};
+
+		const bucketize = (rating: string) => {
+			const value = Number(rating);
+			if (Number.isNaN(value)) return null;
+			const clamped = Math.min(maxRating, Math.max(minRating, value));
+			const steps = Math.round((clamped - minRating) / bucketSize);
+			return Math.min(bucketCount - 1, Math.max(0, steps));
+		};
+
+		if (args.mediaType === 'movie') {
+			const movie = await getMovieBySource(ctx, args.source as MediaSource, args.externalId);
+
+			if (!movie) {
+				return empty;
+			}
+
+			const reviews = await ctx.db
+				.query('movieReviews')
+				.withIndex('by_movieId', (q) => q.eq('movieId', movie._id))
+				.collect();
+
+			if (reviews.length === 0) {
+				return empty;
+			}
+
+			const counts = Array(bucketCount).fill(0);
+			for (const review of reviews) {
+				const index = bucketize(review.rating);
+				if (index === null) continue;
+				counts[index] += 1;
+			}
+
+			return { counts, totalCount: reviews.length };
+		} else {
+			const tvShow = await getTVShowBySource(ctx, args.source as MediaSource, args.externalId);
+
+			if (!tvShow) {
+				return empty;
+			}
+
+			const reviews = await ctx.db
+				.query('tvReviews')
+				.withIndex('by_tvShowId', (q) => q.eq('tvShowId', tvShow._id))
+				.collect();
+
+			if (reviews.length === 0) {
+				return empty;
+			}
+
+			const counts = Array(bucketCount).fill(0);
+			for (const review of reviews) {
+				const index = bucketize(review.rating);
+				if (index === null) continue;
+				counts[index] += 1;
+			}
+
+			return { counts, totalCount: reviews.length };
+		}
+	}
+});
+
+/**
  * Mutation: Add or update a review (upsert).
  *
  * Requires authentication.
