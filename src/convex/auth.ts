@@ -288,8 +288,11 @@ export const refreshAccessToken = action({
 			);
 		}
 
-		const deviceSecretHash = await hashDeviceSecret(args.deviceSecret);
-		if (session.deviceSecretHash !== deviceSecretHash) {
+		const validSecret = await verifyDeviceSecret(
+			args.deviceSecret,
+			session.deviceSecretHash
+		);
+		if (!validSecret) {
 			await ctx.runMutation(internal.auth.deleteSession, { userId: session.userId });
 			throw new AuthError(AuthErrorCode.INVALID_DEVICE, 'Device verification failed.');
 		}

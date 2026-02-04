@@ -1,7 +1,7 @@
 import { v } from 'convex/values';
 
 import { internal } from './_generated/api';
-import { action, internalMutation, internalQuery } from './_generated/server';
+import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
 import { fetchSearchFromTMDB, type NormalizedSearchItem } from './services/searchService';
 
 const DEFAULT_LIMIT = 10;
