@@ -11,4 +11,13 @@ crons.interval(
 	internal.trending.refreshAllTrending
 );
 
+
+// Clean up search caches and rate-limit buckets every 30 minutes
+crons.interval(
+	'cleanup search artifacts',
+	{ minutes: 30 },
+	internal.search.cleanupSearchArtifacts
+);
+
 export default crons;
+

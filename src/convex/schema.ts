@@ -55,6 +55,42 @@ export default defineSchema({
 		fetchedAt: v.number() // timestamp for cache freshness
 	}).index('by_filter_timeWindow', ['filter', 'timeWindow']),
 
+
+	// Search cache - short-lived TMDB search result cache
+	// Keyed by normalized query + limit to avoid repeated external API calls
+	searchCache: defineTable({
+		queryKey: v.string(),
+		limit: v.number(),
+		items: v.array(
+			v.object({
+				id: v.number(),
+				mediaType: v.union(v.literal('movie'), v.literal('tv')),
+				title: v.string(),
+				originalTitle: v.string(),
+				overview: v.optional(v.string()),
+				posterPath: v.union(v.string(), v.null()),
+				backdropPath: v.union(v.string(), v.null()),
+				popularity: v.number(),
+				releaseDate: v.union(v.string(), v.null()),
+				voteAverage: v.union(v.number(), v.null()),
+				voteCount: v.union(v.number(), v.null()),
+				adult: v.boolean()
+			})
+		),
+		fetchedAt: v.number()
+	}).index('by_queryKey_limit', ['queryKey', 'limit']).index('by_fetchedAt', ['fetchedAt']),
+
+	// Search rate limiting - per-user request bucket counters
+	searchRateLimit: defineTable({
+		userId: v.string(),
+		bucketStart: v.number(),
+		count: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_userId', ['userId'])
+		.index('by_userId_bucketStart', ['userId', 'bucketStart'])
+		.index('by_bucketStart', ['bucketStart']),
+
 	// Movies table - stores movie metadata (data source hub)
 	// Supports multiple data sources (TMDB, Trakt, IMDB, etc.)
 	// A movie must have at least one source ID, but can have multiple
