@@ -86,7 +86,7 @@ export const get = query({
  * Requires authentication.
  * Returns tmdbId if available (for backwards compatibility), but also includes all source IDs.
  *
- * @returns Array<{ tmdbId?, traktId?, imdbId?, mediaType, title, posterPath, rating, createdAt }>
+ * @returns Array<{ tmdbId?, traktId?, imdbId?, mediaType, title, posterPath, releaseDate, rating, createdAt }>
  */
 export const getAll = query({
 	args: {},
@@ -120,6 +120,7 @@ export const getAll = query({
 					mediaType: 'movie' as const,
 					title: movie?.title ?? 'Unknown Movie',
 					posterPath: movie?.posterPath ?? null,
+					releaseDate: movie?.releaseDate ?? null,
 					rating: review.rating,
 					createdAt: review.createdAt
 				};
@@ -138,6 +139,7 @@ export const getAll = query({
 					mediaType: 'tv' as const,
 					title: tvShow?.title ?? 'Unknown Show',
 					posterPath: tvShow?.posterPath ?? null,
+					releaseDate: tvShow?.releaseDate ?? null,
 					rating: review.rating,
 					createdAt: review.createdAt
 				};

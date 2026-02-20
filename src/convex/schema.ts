@@ -104,7 +104,13 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		slug: v.union(v.string(), v.null())
+		slug: v.union(v.string(), v.null()),
+		// Enrichment metadata
+		metadataVersion: v.optional(v.number()),
+		isAnime: v.optional(v.boolean()),
+		primaryStudioTmdbId: v.optional(v.number()),
+		primaryStudioName: v.optional(v.string()),
+		director: v.optional(v.string())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
@@ -123,11 +129,106 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		slug: v.union(v.string(), v.null())
+		slug: v.union(v.string(), v.null()),
+		// Enrichment metadata
+		metadataVersion: v.optional(v.number()),
+		isAnime: v.optional(v.boolean()),
+		primaryStudioTmdbId: v.optional(v.number()),
+		primaryStudioName: v.optional(v.string()),
+		creator: v.optional(v.string())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
 		.index('by_imdbId', ['imdbId']),
+
+	// People table - normalized person metadata from TMDB
+	people: defineTable({
+		tmdbId: v.number(),
+		name: v.string(),
+		originalName: v.optional(v.string()),
+		profilePath: v.union(v.string(), v.null()),
+		knownForDepartment: v.union(v.string(), v.null())
+	})
+		.index('by_tmdbId', ['tmdbId'])
+		.index('by_name', ['name']),
+
+	// Companies table - normalized production company/studio metadata from TMDB
+	companies: defineTable({
+		tmdbId: v.number(),
+		name: v.string(),
+		logoPath: v.union(v.string(), v.null()),
+		originCountry: v.union(v.string(), v.null())
+	})
+		.index('by_tmdbId', ['tmdbId'])
+		.index('by_name', ['name']),
+
+	// Movie credits - relationship between movies and people with role metadata
+	movieCredits: defineTable({
+		movieId: v.id('movies'),
+		personId: v.id('people'),
+		personTmdbId: v.number(),
+		role: v.string(),
+		department: v.union(v.string(), v.null()),
+		job: v.union(v.string(), v.null()),
+		character: v.union(v.string(), v.null()),
+		creditId: v.string(),
+		billingOrder: v.number(),
+		source: v.literal('tmdb')
+	})
+		.index('by_movieId', ['movieId'])
+		.index('by_personId', ['personId'])
+		.index('by_personTmdbId', ['personTmdbId'])
+		.index('by_personId_role', ['personId', 'role'])
+		.index('by_movieId_role', ['movieId', 'role'])
+		.index('by_movieId_creditId', ['movieId', 'creditId']),
+
+	// TV credits - relationship between TV shows and people with role metadata
+	tvCredits: defineTable({
+		tvShowId: v.id('tvShows'),
+		personId: v.id('people'),
+		personTmdbId: v.number(),
+		role: v.string(),
+		department: v.union(v.string(), v.null()),
+		job: v.union(v.string(), v.null()),
+		character: v.union(v.string(), v.null()),
+		creditId: v.string(),
+		billingOrder: v.number(),
+		source: v.literal('tmdb')
+	})
+		.index('by_tvShowId', ['tvShowId'])
+		.index('by_personId', ['personId'])
+		.index('by_personTmdbId', ['personTmdbId'])
+		.index('by_personId_role', ['personId', 'role'])
+		.index('by_tvShowId_role', ['tvShowId', 'role'])
+		.index('by_tvShowId_creditId', ['tvShowId', 'creditId']),
+
+	// Movie companies - relationship between movies and production companies
+	movieCompanies: defineTable({
+		movieId: v.id('movies'),
+		companyId: v.id('companies'),
+		companyTmdbId: v.number(),
+		role: v.string(),
+		billingOrder: v.number(),
+		source: v.literal('tmdb')
+	})
+		.index('by_movieId', ['movieId'])
+		.index('by_companyId', ['companyId'])
+		.index('by_companyTmdbId', ['companyTmdbId'])
+		.index('by_movieId_companyId', ['movieId', 'companyId']),
+
+	// TV companies - relationship between TV shows and production companies
+	tvCompanies: defineTable({
+		tvShowId: v.id('tvShows'),
+		companyId: v.id('companies'),
+		companyTmdbId: v.number(),
+		role: v.string(),
+		billingOrder: v.number(),
+		source: v.literal('tmdb')
+	})
+		.index('by_tvShowId', ['tvShowId'])
+		.index('by_companyId', ['companyId'])
+		.index('by_companyTmdbId', ['companyTmdbId'])
+		.index('by_tvShowId_companyId', ['tvShowId', 'companyId']),
 
 	// Movie Reviews - user ratings and reviews for movies
 	// Uses internal Convex IDs for proper normalization and multi-source support

@@ -16,7 +16,22 @@ export async function getMovieBySource(
 	ctx: QueryCtx | MutationCtx,
 	source: MediaSource,
 	externalId: number | string
-): Promise<{ _id: Id<'movies'>; tmdbId?: number; traktId?: number; imdbId?: string; title: string; posterPath: string | null; backdropPath: string | null; releaseDate: string | null; slug: string | null } | null> {
+): Promise<{
+	_id: Id<'movies'>;
+	tmdbId?: number;
+	traktId?: number;
+	imdbId?: string;
+	title: string;
+	posterPath: string | null;
+	backdropPath: string | null;
+	releaseDate: string | null;
+	slug: string | null;
+	metadataVersion?: number;
+	isAnime?: boolean;
+	primaryStudioTmdbId?: number;
+	primaryStudioName?: string;
+	director?: string;
+} | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
 			.query('movies')
@@ -48,7 +63,22 @@ export async function getTVShowBySource(
 	ctx: QueryCtx | MutationCtx,
 	source: MediaSource,
 	externalId: number | string
-): Promise<{ _id: Id<'tvShows'>; tmdbId?: number; traktId?: number; imdbId?: string; title: string; posterPath: string | null; backdropPath: string | null; releaseDate: string | null; slug: string | null } | null> {
+): Promise<{
+	_id: Id<'tvShows'>;
+	tmdbId?: number;
+	traktId?: number;
+	imdbId?: string;
+	title: string;
+	posterPath: string | null;
+	backdropPath: string | null;
+	releaseDate: string | null;
+	slug: string | null;
+	metadataVersion?: number;
+	isAnime?: boolean;
+	primaryStudioTmdbId?: number;
+	primaryStudioName?: string;
+	creator?: string;
+} | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
 			.query('tvShows')
