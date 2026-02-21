@@ -36,6 +36,13 @@ const userSessionValidator = v.object({
 	rotatedAt: v.optional(v.number())
 });
 
+const detailCreatorCreditValidator = v.object({
+	type: v.union(v.literal('person'), v.literal('company')),
+	tmdbId: v.union(v.number(), v.null()),
+	name: v.string(),
+	role: v.union(v.string(), v.null())
+});
+
 export default defineSchema({
 	appConfig: defineTable({
 		heroImage: v.object({
@@ -91,6 +98,19 @@ export default defineSchema({
 		.index('by_userId_bucketStart', ['userId', 'bucketStart'])
 		.index('by_bucketStart', ['bucketStart']),
 
+	// Transient leases to dedupe stale detail refreshes across clients + sweeper.
+	detailRefreshLeases: defineTable({
+		refreshKey: v.string(),
+		mediaType: v.union(v.literal('movie'), v.literal('tv')),
+		source: v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb')),
+		externalId: v.number(),
+		owner: v.string(),
+		leasedAt: v.number(),
+		leaseExpiresAt: v.number()
+	})
+		.index('by_refreshKey', ['refreshKey'])
+		.index('by_leaseExpiresAt', ['leaseExpiresAt']),
+
 	// Movies table - stores movie metadata (data source hub)
 	// Supports multiple data sources (TMDB, Trakt, IMDB, etc.)
 	// A movie must have at least one source ID, but can have multiple
@@ -104,17 +124,27 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		slug: v.union(v.string(), v.null()),
 		// Enrichment metadata
 		metadataVersion: v.optional(v.number()),
 		isAnime: v.optional(v.boolean()),
-		primaryStudioTmdbId: v.optional(v.number()),
-		primaryStudioName: v.optional(v.string()),
-		director: v.optional(v.string())
+		primaryStudioTmdbId: v.optional(v.union(v.number(), v.null())),
+		primaryStudioName: v.optional(v.union(v.string(), v.null())),
+		director: v.optional(v.union(v.string(), v.null())),
+		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
+		// Detail snapshot fields for DB-first detail rendering
+		overview: v.optional(v.union(v.string(), v.null())),
+		status: v.optional(v.union(v.string(), v.null())),
+		runtime: v.optional(v.union(v.number(), v.null())),
+		detailSchemaVersion: v.optional(v.number()),
+		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
+		nextRefreshAt: v.optional(v.number()),
+		refreshErrorCount: v.optional(v.number()),
+		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
-		.index('by_imdbId', ['imdbId']),
+		.index('by_imdbId', ['imdbId'])
+		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
 	// TV Shows table - stores TV series metadata (data source hub)
 	// Supports multiple data sources (TMDB, Trakt, IMDB, etc.)
@@ -129,25 +159,54 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		slug: v.union(v.string(), v.null()),
 		// Enrichment metadata
 		metadataVersion: v.optional(v.number()),
 		isAnime: v.optional(v.boolean()),
-		primaryStudioTmdbId: v.optional(v.number()),
-		primaryStudioName: v.optional(v.string()),
-		creator: v.optional(v.string())
+		primaryStudioTmdbId: v.optional(v.union(v.number(), v.null())),
+		primaryStudioName: v.optional(v.union(v.string(), v.null())),
+		creator: v.optional(v.union(v.string(), v.null())),
+		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
+		// Detail snapshot fields for DB-first detail rendering
+		overview: v.optional(v.union(v.string(), v.null())),
+		status: v.optional(v.union(v.string(), v.null())),
+		numberOfSeasons: v.optional(v.union(v.number(), v.null())),
+		lastAirDate: v.optional(v.union(v.string(), v.null())),
+		lastEpisodeToAir: v.optional(
+			v.union(
+				v.object({
+					airDate: v.union(v.string(), v.null()),
+					seasonNumber: v.number(),
+					episodeNumber: v.number()
+				}),
+				v.null()
+			)
+		),
+		nextEpisodeToAir: v.optional(
+			v.union(
+				v.object({
+					airDate: v.union(v.string(), v.null()),
+					seasonNumber: v.number(),
+					episodeNumber: v.number()
+				}),
+				v.null()
+			)
+		),
+		detailSchemaVersion: v.optional(v.number()),
+		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
+		nextRefreshAt: v.optional(v.number()),
+		refreshErrorCount: v.optional(v.number()),
+		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
-		.index('by_imdbId', ['imdbId']),
+		.index('by_imdbId', ['imdbId'])
+		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
 	// People table - normalized person metadata from TMDB
 	people: defineTable({
 		tmdbId: v.number(),
 		name: v.string(),
-		originalName: v.optional(v.string()),
-		profilePath: v.union(v.string(), v.null()),
-		knownForDepartment: v.union(v.string(), v.null())
+		profilePath: v.union(v.string(), v.null())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_name', ['name']),
@@ -156,8 +215,7 @@ export default defineSchema({
 	companies: defineTable({
 		tmdbId: v.number(),
 		name: v.string(),
-		logoPath: v.union(v.string(), v.null()),
-		originCountry: v.union(v.string(), v.null())
+		logoPath: v.union(v.string(), v.null())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_name', ['name']),
@@ -168,9 +226,6 @@ export default defineSchema({
 		personId: v.id('people'),
 		personTmdbId: v.number(),
 		role: v.string(),
-		department: v.union(v.string(), v.null()),
-		job: v.union(v.string(), v.null()),
-		character: v.union(v.string(), v.null()),
 		creditId: v.string(),
 		billingOrder: v.number(),
 		source: v.literal('tmdb')
@@ -178,6 +233,7 @@ export default defineSchema({
 		.index('by_movieId', ['movieId'])
 		.index('by_personId', ['personId'])
 		.index('by_personTmdbId', ['personTmdbId'])
+		.index('by_personTmdbId_role', ['personTmdbId', 'role'])
 		.index('by_personId_role', ['personId', 'role'])
 		.index('by_movieId_role', ['movieId', 'role'])
 		.index('by_movieId_creditId', ['movieId', 'creditId']),
@@ -188,9 +244,6 @@ export default defineSchema({
 		personId: v.id('people'),
 		personTmdbId: v.number(),
 		role: v.string(),
-		department: v.union(v.string(), v.null()),
-		job: v.union(v.string(), v.null()),
-		character: v.union(v.string(), v.null()),
 		creditId: v.string(),
 		billingOrder: v.number(),
 		source: v.literal('tmdb')
@@ -198,6 +251,7 @@ export default defineSchema({
 		.index('by_tvShowId', ['tvShowId'])
 		.index('by_personId', ['personId'])
 		.index('by_personTmdbId', ['personTmdbId'])
+		.index('by_personTmdbId_role', ['personTmdbId', 'role'])
 		.index('by_personId_role', ['personId', 'role'])
 		.index('by_tvShowId_role', ['tvShowId', 'role'])
 		.index('by_tvShowId_creditId', ['tvShowId', 'creditId']),

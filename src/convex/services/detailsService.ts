@@ -409,9 +409,9 @@ function normalizeCrewMember(crew: CrewMember): NormalizedCrewMember {
  * Normalizes movie details from TMDB response.
  */
 function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
-	// Trim cast to 12 and filter crew to directors only
-	const trimmedCast = data.credits.cast.slice(0, 12);
-	const directors = data.credits.crew.filter((member) => member.job === 'Director');
+	const castMembers = data.credits.cast;
+	const crewMembers = data.credits.crew;
+	const directors = crewMembers.filter((member) => member.job === 'Director');
 
 	return {
 		mediaType: 'movie',
@@ -427,8 +427,8 @@ function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
 			: null,
 		budget: data.budget,
 		credits: {
-			cast: trimmedCast.map(normalizeCastMember),
-			crew: directors.map(normalizeCrewMember)
+			cast: castMembers.map(normalizeCastMember),
+			crew: crewMembers.map(normalizeCrewMember)
 		},
 		director: formatNames(directors),
 		directorList: directors.map(normalizeCrewMember),
@@ -473,9 +473,8 @@ function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
  * Normalizes TV details from TMDB response.
  */
 function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
-	// Trim cast to 12 and filter crew to directors only
-	const trimmedCast = data.credits.cast.slice(0, 12);
-	const directors = data.credits.crew.filter((member) => member.job === 'Director');
+	const castMembers = data.credits.cast;
+	const crewMembers = data.credits.crew;
 
 	const normalizeEpisode = (ep: TMDBEpisode | null): NormalizedEpisode | null => {
 		if (!ep) return null;
@@ -510,8 +509,8 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 			profilePath: c.profile_path
 		})),
 		credits: {
-			cast: trimmedCast.map(normalizeCastMember),
-			crew: directors.map(normalizeCrewMember)
+			cast: castMembers.map(normalizeCastMember),
+			crew: crewMembers.map(normalizeCrewMember)
 		},
 		episodeRunTime: data.episode_run_time,
 		genres: data.genres,

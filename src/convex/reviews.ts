@@ -363,13 +363,35 @@ export const add = mutation({
 					posterPath: string | null;
 					backdropPath: null;
 					releaseDate: null;
-					slug: null;
+					overview: null;
+					status: null;
+					runtime: null;
+					primaryStudioTmdbId: null;
+					primaryStudioName: null;
+					director: null;
+					creatorCredits: [];
+					detailSchemaVersion: number;
+					detailFetchedAt: null;
+					nextRefreshAt: number;
+					refreshErrorCount: number;
+					lastRefreshErrorAt: null;
 				} = {
 					title: args.title,
 					posterPath: args.posterPath,
 					backdropPath: null,
 					releaseDate: null,
-					slug: null
+					overview: null,
+					status: null,
+					runtime: null,
+					primaryStudioTmdbId: null,
+					primaryStudioName: null,
+					director: null,
+					creatorCredits: [],
+					detailSchemaVersion: 0,
+					detailFetchedAt: null,
+					nextRefreshAt: now,
+					refreshErrorCount: 0,
+					lastRefreshErrorAt: null
 				};
 
 				if (args.source === 'tmdb') {
@@ -445,13 +467,41 @@ export const add = mutation({
 					posterPath: string | null;
 					backdropPath: null;
 					releaseDate: null;
-					slug: null;
+					overview: null;
+					status: null;
+					numberOfSeasons: null;
+					lastAirDate: null;
+					lastEpisodeToAir: null;
+					nextEpisodeToAir: null;
+					primaryStudioTmdbId: null;
+					primaryStudioName: null;
+					creator: null;
+					creatorCredits: [];
+					detailSchemaVersion: number;
+					detailFetchedAt: null;
+					nextRefreshAt: number;
+					refreshErrorCount: number;
+					lastRefreshErrorAt: null;
 				} = {
 					title: args.title,
 					posterPath: args.posterPath,
 					backdropPath: null,
 					releaseDate: null,
-					slug: null
+					overview: null,
+					status: null,
+					numberOfSeasons: null,
+					lastAirDate: null,
+					lastEpisodeToAir: null,
+					nextEpisodeToAir: null,
+					primaryStudioTmdbId: null,
+					primaryStudioName: null,
+					creator: null,
+					creatorCredits: [],
+					detailSchemaVersion: 0,
+					detailFetchedAt: null,
+					nextRefreshAt: now,
+					refreshErrorCount: 0,
+					lastRefreshErrorAt: null
 				};
 
 				if (args.source === 'tmdb') {

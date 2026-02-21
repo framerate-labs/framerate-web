@@ -19,5 +19,12 @@ crons.interval(
 	internal.search.cleanupSearchArtifacts
 );
 
-export default crons;
+// Sweep stale detail snapshots in bounded batches.
+// Limits are enforced in details.sweepStaleDetails to keep TMDB traffic controlled.
+crons.interval(
+	'sweep stale details',
+	{ hours: 3 },
+	internal.details.sweepStaleDetails
+);
 
+export default crons;

@@ -25,12 +25,11 @@ export async function getMovieBySource(
 	posterPath: string | null;
 	backdropPath: string | null;
 	releaseDate: string | null;
-	slug: string | null;
 	metadataVersion?: number;
 	isAnime?: boolean;
-	primaryStudioTmdbId?: number;
-	primaryStudioName?: string;
-	director?: string;
+	primaryStudioTmdbId?: number | null;
+	primaryStudioName?: string | null;
+	director?: string | null;
 } | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
@@ -72,12 +71,11 @@ export async function getTVShowBySource(
 	posterPath: string | null;
 	backdropPath: string | null;
 	releaseDate: string | null;
-	slug: string | null;
 	metadataVersion?: number;
 	isAnime?: boolean;
-	primaryStudioTmdbId?: number;
-	primaryStudioName?: string;
-	creator?: string;
+	primaryStudioTmdbId?: number | null;
+	primaryStudioName?: string | null;
+	creator?: string | null;
 } | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
