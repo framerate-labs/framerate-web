@@ -31,8 +31,7 @@ export const backfillRequiredDetailFields = internalMutation({
 	},
 	handler: async (ctx, args) => {
 		const now = Date.now();
-		const table =
-			args.table ?? ((args.tvShowCursor ?? null) !== null ? 'tvShows' : 'movies');
+		const table = args.table ?? ((args.tvShowCursor ?? null) !== null ? 'tvShows' : 'movies');
 		const cursor =
 			args.cursor ??
 			(table === 'movies' ? (args.movieCursor ?? null) : (args.tvShowCursor ?? null));

@@ -1,5 +1,3 @@
-import type { MediaType } from '../types/mediaTypes';
-import type { NormalizedMediaDetails } from '../types/tmdb/detailsTypes';
 import type {
 	DetailRefreshDecision,
 	EnrichmentCompanyInput,
@@ -9,6 +7,8 @@ import type {
 	StoredMediaSnapshot,
 	SyncPolicy
 } from '../types/detailsType';
+import type { MediaType } from '../types/mediaTypes';
+import type { NormalizedMediaDetails } from '../types/tmdb/detailsTypes';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -94,15 +94,27 @@ export function shouldRetryDueToPotentialRegression(
 ): boolean {
 	if (stored === null) return false;
 
-	if (stored.releaseDate !== null && stored.releaseDate !== undefined && prepared.details.releaseDate === null) {
+	if (
+		stored.releaseDate !== null &&
+		stored.releaseDate !== undefined &&
+		prepared.details.releaseDate === null
+	) {
 		return true;
 	}
-	if (stored.overview !== null && stored.overview !== undefined && prepared.details.overview === null) {
+	if (
+		stored.overview !== null &&
+		stored.overview !== undefined &&
+		prepared.details.overview === null
+	) {
 		return true;
 	}
 
 	if (mediaType === 'movie' && prepared.details.mediaType === 'movie') {
-		if (stored.runtime !== null && stored.runtime !== undefined && prepared.details.runtime === null) {
+		if (
+			stored.runtime !== null &&
+			stored.runtime !== undefined &&
+			prepared.details.runtime === null
+		) {
 			return true;
 		}
 	} else if (mediaType === 'tv' && prepared.details.mediaType === 'tv') {
@@ -258,7 +270,7 @@ export function buildCreatorCredits(
 								name,
 								role: 'director'
 							}))
-				  );
+					);
 
 		if (isAnime && primaryStudio) {
 			return dedupeCreatorCredits([primaryStudio, ...directorFallback]);
@@ -420,7 +432,8 @@ export function evaluateStoredMovieDecision(
 	now: number,
 	detailSchemaVersion: number
 ): DetailRefreshDecision {
-	const hasTypeSpecificMissing = stored.runtime === undefined || stored.creatorCredits === undefined;
+	const hasTypeSpecificMissing =
+		stored.runtime === undefined || stored.creatorCredits === undefined;
 	return evaluateStoredDecision(stored, now, hasTypeSpecificMissing, detailSchemaVersion);
 }
 

@@ -1,6 +1,5 @@
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx, QueryCtx } from '../_generated/server';
-import type { MediaSource } from '../utils/mediaLookup';
 import type {
 	ExternalSourceIds,
 	MovieSeedData,
@@ -8,6 +7,7 @@ import type {
 	ReviewMediaType,
 	TVSeedData
 } from '../types/reviewTypes';
+import type { MediaSource } from '../utils/mediaLookup';
 
 import { api } from '../_generated/api';
 import { getMovieBySource, getTVShowBySource } from '../utils/mediaLookup';

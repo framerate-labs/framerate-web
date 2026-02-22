@@ -1,5 +1,4 @@
 import type { ActionCtx } from '../_generated/server';
-import type { MediaType } from '../types/mediaTypes';
 import type {
 	DetailRefreshDecision,
 	PreparedDetailSync,
@@ -9,7 +8,9 @@ import type {
 	StoredMediaSnapshot,
 	SweepStaleDetailsResult
 } from '../types/detailsType';
+import type { MediaType } from '../types/mediaTypes';
 import type { MediaSource } from '../utils/mediaLookup';
+
 import { internal } from '../_generated/api';
 import {
 	buildCompanies,
@@ -115,11 +116,14 @@ export async function runRefreshIfStale(
 	}
 
 	const now = Date.now();
-	const storedMedia: StoredMediaSnapshot | null = (await ctx.runQuery(internal.detailsRefresh.getStoredMedia, {
-		mediaType: args.mediaType as MediaType,
-		source,
-		externalId: args.id
-	})) as StoredMediaSnapshot | null;
+	const storedMedia: StoredMediaSnapshot | null = (await ctx.runQuery(
+		internal.detailsRefresh.getStoredMedia,
+		{
+			mediaType: args.mediaType as MediaType,
+			source,
+			externalId: args.id
+		}
+	)) as StoredMediaSnapshot | null;
 
 	const decision = evaluateDecision(args, storedMedia, now, config.detailSchemaVersion);
 	if (!decision.needsRefresh) {

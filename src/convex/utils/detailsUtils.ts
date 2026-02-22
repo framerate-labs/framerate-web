@@ -3,11 +3,11 @@ import type {
 	InsertMediaArgs,
 	MovieInsertDoc,
 	MoviePatch,
+	StoredMovieDoc,
+	StoredTVDoc,
 	SyncPolicy,
 	TVInsertDoc,
-	TVPatch,
-	StoredMovieDoc,
-	StoredTVDoc
+	TVPatch
 } from '../types/detailsType';
 
 import {
@@ -151,7 +151,13 @@ export function buildMoviePatch(
 	const patch: MoviePatch = {};
 
 	setPatchByPolicy(patch, 'title', syncPolicy.title, existing.title, args.title);
-	setPatchByPolicy(patch, 'posterPath', syncPolicy.posterPath, existing.posterPath, args.posterPath);
+	setPatchByPolicy(
+		patch,
+		'posterPath',
+		syncPolicy.posterPath,
+		existing.posterPath,
+		args.posterPath
+	);
 	setPatchByPolicy(
 		patch,
 		'backdropPath',
@@ -214,7 +220,13 @@ export function buildTVPatch(
 	const patch: TVPatch = {};
 
 	setPatchByPolicy(patch, 'title', syncPolicy.title, existing.title, args.title);
-	setPatchByPolicy(patch, 'posterPath', syncPolicy.posterPath, existing.posterPath, args.posterPath);
+	setPatchByPolicy(
+		patch,
+		'posterPath',
+		syncPolicy.posterPath,
+		existing.posterPath,
+		args.posterPath
+	);
 	setPatchByPolicy(
 		patch,
 		'backdropPath',
@@ -255,7 +267,13 @@ export function buildTVPatch(
 		existing.numberOfSeasons,
 		args.numberOfSeasons
 	);
-	setPatchByPolicy(patch, 'lastAirDate', syncPolicy.lastAirDate, existing.lastAirDate, args.lastAirDate);
+	setPatchByPolicy(
+		patch,
+		'lastAirDate',
+		syncPolicy.lastAirDate,
+		existing.lastAirDate,
+		args.lastAirDate
+	);
 
 	if (
 		shouldApplySyncPolicy(

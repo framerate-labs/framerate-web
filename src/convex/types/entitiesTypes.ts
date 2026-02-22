@@ -53,7 +53,11 @@ export type DesiredTVLink = {
 	billingOrder: number;
 };
 
-export type ManagedLinkRowId = Id<'movieCredits'> | Id<'tvCredits'> | Id<'movieCompanies'> | Id<'tvCompanies'>;
+export type ManagedLinkRowId =
+	| Id<'movieCredits'>
+	| Id<'tvCredits'>
+	| Id<'movieCompanies'>
+	| Id<'tvCompanies'>;
 
 export type MediaLibraryState = {
 	mediaType: MediaWorkType;

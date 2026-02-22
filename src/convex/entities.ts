@@ -1,32 +1,28 @@
-import { v } from 'convex/values';
-
-import type { ActionCtx } from './_generated/server';
-import { internal } from './_generated/api';
-import { action, internalMutation, internalQuery } from './_generated/server';
 import type { Id } from './_generated/dataModel';
+import type { ActionCtx } from './_generated/server';
 import type {
 	AnnotatedMediaWork,
-	PersonMediaReference,
 	MediaLibraryState,
+	MediaQueryContext,
 	MediaWork,
-	MediaQueryContext
+	PersonMediaReference
 } from './types/entitiesTypes';
+
+import { v } from 'convex/values';
+
+import { internal } from './_generated/api';
+import { action, internalMutation, internalQuery } from './_generated/server';
 import {
+	annotateMediaWorksWithLibraryState,
+	applyMediaWorkFilters,
 	buildPersonMediaReferences,
 	buildPersonMediaWorksFromTMDB,
 	clampMediaWorkLimit,
-	dedupePersonMediaReferences,
 	dedupeMediaWorks,
+	dedupePersonMediaReferences,
 	sortMediaWorksByDateThenTitle,
-	toMediaReferences,
-	annotateMediaWorksWithLibraryState,
-	applyMediaWorkFilters
+	toMediaReferences
 } from './services/entitiesMediaWorkService';
-import {
-	fetchCompanyFromTMDB,
-	fetchCompanyMediaWorksFromTMDB,
-	fetchPersonFromTMDB
-} from './services/entitiesTMDBService';
 import {
 	resolveExistingMediaReferences,
 	syncManagedMovieLinks,
@@ -36,6 +32,11 @@ import {
 	upsertCompanyRecord,
 	upsertPersonRecord
 } from './services/entitiesSyncService';
+import {
+	fetchCompanyFromTMDB,
+	fetchCompanyMediaWorksFromTMDB,
+	fetchPersonFromTMDB
+} from './services/entitiesTMDBService';
 
 const COMPANY_GRAPH_MAX_DISCOVER_PAGES = 8;
 const PERSON_LINK_SOURCE = 'tmdb' as const;
@@ -269,7 +270,9 @@ export const syncPersonFromTMDB = internalMutation({
 		references: v.array(mediaReferenceValidator)
 	},
 	handler: async (ctx, args) => {
-		const dedupedReferences = dedupePersonMediaReferences(args.references as PersonMediaReference[]);
+		const dedupedReferences = dedupePersonMediaReferences(
+			args.references as PersonMediaReference[]
+		);
 		const personId = await upsertPersonRecord(ctx, {
 			tmdbId: args.tmdbPersonId,
 			name: args.name,
@@ -305,9 +308,7 @@ export const syncPersonFromTMDB = internalMutation({
 			},
 			buildEntityPatch: (existing) => ({
 				...(existing.personId !== personId ? { personId } : {}),
-				...(existing.personTmdbId !== args.tmdbPersonId
-					? { personTmdbId: args.tmdbPersonId }
-					: {})
+				...(existing.personTmdbId !== args.tmdbPersonId ? { personTmdbId: args.tmdbPersonId } : {})
 			})
 		});
 
@@ -328,9 +329,7 @@ export const syncPersonFromTMDB = internalMutation({
 			},
 			buildEntityPatch: (existing) => ({
 				...(existing.personId !== personId ? { personId } : {}),
-				...(existing.personTmdbId !== args.tmdbPersonId
-					? { personTmdbId: args.tmdbPersonId }
-					: {})
+				...(existing.personTmdbId !== args.tmdbPersonId ? { personTmdbId: args.tmdbPersonId } : {})
 			})
 		});
 	}
@@ -344,7 +343,9 @@ export const syncCompanyFromTMDB = internalMutation({
 		references: v.array(mediaReferenceValidator)
 	},
 	handler: async (ctx, args) => {
-		const dedupedReferences = dedupePersonMediaReferences(args.references as PersonMediaReference[]);
+		const dedupedReferences = dedupePersonMediaReferences(
+			args.references as PersonMediaReference[]
+		);
 		const companyId = await upsertCompanyRecord(ctx, {
 			tmdbId: args.tmdbCompanyId,
 			name: args.name,
@@ -501,7 +502,9 @@ export const getCompanyPageFromTMDB = action({
 		]);
 
 		const roles = movieWorks.length > 0 || tvWorks.length > 0 ? ['production'] : [];
-		const deduped = dedupeMediaWorks([...movieWorks, ...tvWorks]).sort(sortMediaWorksByDateThenTitle);
+		const deduped = dedupeMediaWorks([...movieWorks, ...tvWorks]).sort(
+			sortMediaWorksByDateThenTitle
+		);
 		await ctx.runMutation(internal.entities.syncCompanyFromTMDB, {
 			tmdbCompanyId: payload.id,
 			name: payload.name,

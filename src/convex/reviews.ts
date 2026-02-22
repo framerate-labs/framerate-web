@@ -1,15 +1,10 @@
-import type { MediaSource } from './utils/mediaLookup';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import type { ReviewMediaType } from './types/reviewTypes';
+import type { MediaSource } from './utils/mediaLookup';
 
 import { v } from 'convex/values';
 
 import { mutation, query } from './_generated/server';
-import {
-	ensureMediaRecord,
-	resolveMedia,
-	scheduleDetailHydrationForTMDB
-} from './services/reviewService';
 import {
 	buildReviewListItem,
 	deleteUserReviewForMedia,
@@ -19,7 +14,16 @@ import {
 	getUserTVReviews,
 	upsertUserReview
 } from './services/reviewRepository';
-import { emptyRatingDistribution, computeAverageRating, computeRatingDistribution } from './utils/reviewStats';
+import {
+	ensureMediaRecord,
+	resolveMedia,
+	scheduleDetailHydrationForTMDB
+} from './services/reviewService';
+import {
+	computeAverageRating,
+	computeRatingDistribution,
+	emptyRatingDistribution
+} from './utils/reviewStats';
 import { validateRating } from './utils/validateRating';
 
 const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));

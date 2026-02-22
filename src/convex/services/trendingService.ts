@@ -8,10 +8,11 @@
 import type {
 	Filter,
 	NormalizedTrendingItem,
+	TimeWindow,
 	TMDBTrendingItem,
-	TMDBTrendingResponse,
-	TimeWindow
+	TMDBTrendingResponse
 } from '../types/tmdb/trendingTypes';
+
 import { fetchTMDBJson } from '../utils/tmdb';
 
 /**

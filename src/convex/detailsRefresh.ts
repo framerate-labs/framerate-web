@@ -1,30 +1,27 @@
-import type { MediaType } from './types/mediaTypes';
 import type {
 	InsertMediaArgs,
 	RefreshCandidate,
 	RefreshIfStaleResult,
+	StoredMediaSnapshot,
 	StoredMovieDoc,
 	StoredTVDoc,
-	StoredMediaSnapshot,
 	SweepStaleDetailsResult,
 	SyncPolicy
 } from './types/detailsType';
+import type { MediaType } from './types/mediaTypes';
 import type { MediaSource } from './utils/mediaLookup';
 
 import { v } from 'convex/values';
 
 import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
 import {
-	cloneCreatorCredits,
-	dedupeCreatorCredits
-} from './services/detailsService';
-import {
-	DEFAULT_DETAIL_REFRESH_CONFIG,
 	computeRefreshErrorBackoffMs,
 	createDetailRefreshLeaseKey,
+	DEFAULT_DETAIL_REFRESH_CONFIG,
 	runRefreshIfStale,
 	runSweepStaleDetails
 } from './services/detailsRefreshService';
+import { cloneCreatorCredits, dedupeCreatorCredits } from './services/detailsService';
 import {
 	buildMovieInsertDoc,
 	buildMoviePatch,
@@ -164,9 +161,7 @@ export const insertMedia = internalMutation({
 	},
 	handler: async (ctx, rawArgs) => {
 		const args = rawArgs as InsertMediaArgs;
-		const incomingCreatorCredits = dedupeCreatorCredits(
-			cloneCreatorCredits(args.creatorCredits)
-		);
+		const incomingCreatorCredits = dedupeCreatorCredits(cloneCreatorCredits(args.creatorCredits));
 
 		if (args.mediaType === 'movie') {
 			const existing = (await getMovieBySource(

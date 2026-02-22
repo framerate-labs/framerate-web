@@ -1,11 +1,11 @@
 import type {
 	AnnotatedMediaWork,
+	MediaLibraryState,
+	MediaWork,
+	MediaWorkType,
 	PersonMediaReference,
 	TMDBPersonCredit,
-	TMDBPersonDetailsResponse,
-	MediaLibraryState,
-	MediaWorkType,
-	MediaWork
+	TMDBPersonDetailsResponse
 } from '../types/entitiesTypes';
 
 function parseDateToEpoch(dateString: string | null): number {
@@ -46,7 +46,9 @@ export function mediaReferenceKey(mediaType: MediaWorkType, tmdbId: number): str
 	return `${mediaType}:${tmdbId}`;
 }
 
-export function dedupePersonMediaReferences(references: PersonMediaReference[]): PersonMediaReference[] {
+export function dedupePersonMediaReferences(
+	references: PersonMediaReference[]
+): PersonMediaReference[] {
 	const deduped = new Map<string, PersonMediaReference>();
 	for (const reference of references) {
 		const key = mediaReferenceKey(reference.mediaType, reference.tmdbId);
@@ -70,7 +72,10 @@ export function clampMediaWorkLimit(limit: number | undefined): number {
 	return Math.max(1, Math.min(limit ?? 100, 250));
 }
 
-export function annotateMediaWorksWithLibraryState(works: MediaWork[], states: MediaLibraryState[]): AnnotatedMediaWork[] {
+export function annotateMediaWorksWithLibraryState(
+	works: MediaWork[],
+	states: MediaLibraryState[]
+): AnnotatedMediaWork[] {
 	const stateByMedia = new Map<string, MediaLibraryState>();
 	for (const state of states) {
 		stateByMedia.set(mediaReferenceKey(state.mediaType, state.tmdbId), state);
@@ -116,7 +121,10 @@ function normalizeLower(value: string | null | undefined): string {
 	return (value ?? '').trim().toLowerCase();
 }
 
-function mapCrewRole(job: string | null | undefined, department: string | null | undefined): string | null {
+function mapCrewRole(
+	job: string | null | undefined,
+	department: string | null | undefined
+): string | null {
 	const normalizedJob = normalizeLower(job);
 	const normalizedDepartment = normalizeLower(department);
 
@@ -159,7 +167,9 @@ function mapPersonCreditToWork(
 		title,
 		posterPath: typeof credit.poster_path === 'string' ? credit.poster_path : null,
 		releaseDate:
-			credit.media_type === 'movie' ? (credit.release_date ?? null) : (credit.first_air_date ?? null),
+			credit.media_type === 'movie'
+				? (credit.release_date ?? null)
+				: (credit.first_air_date ?? null),
 		role,
 		billingOrder
 	};
@@ -188,7 +198,11 @@ export function buildPersonMediaWorksFromTMDB(
 		if (credit.media_type === 'tv') tvCreditCount += 1;
 		rolesDiscovered.add('actor');
 
-		const row = mapPersonCreditToWork(credit, 'actor', typeof credit.order === 'number' ? credit.order : index);
+		const row = mapPersonCreditToWork(
+			credit,
+			'actor',
+			typeof credit.order === 'number' ? credit.order : index
+		);
 		if (!row) continue;
 		if (options.mediaFilter !== 'all' && row.mediaType !== options.mediaFilter) continue;
 		rows.push(row);
@@ -222,7 +236,9 @@ export function buildPersonMediaWorksFromTMDB(
 	};
 }
 
-export function buildPersonMediaReferences(payload: TMDBPersonDetailsResponse): PersonMediaReference[] {
+export function buildPersonMediaReferences(
+	payload: TMDBPersonDetailsResponse
+): PersonMediaReference[] {
 	const references: PersonMediaReference[] = [];
 
 	const castCredits = payload.combined_credits?.cast ?? [];

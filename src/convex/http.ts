@@ -6,8 +6,9 @@
  */
 
 import { httpRouter } from 'convex/server';
-import { httpAction } from './_generated/server';
+
 import { internal } from './_generated/api';
+import { httpAction } from './_generated/server';
 import { verifyDeviceSecret } from './utils/deviceSecret';
 
 const http = httpRouter();
@@ -35,17 +36,23 @@ http.route({
 			const deviceSecret = body?.deviceSecret;
 
 			if (!sessionId || typeof sessionId !== 'string') {
-				return new Response(JSON.stringify({ error: 'sessionId is required', code: 'INVALID_REQUEST' }), {
-					status: 400,
-					headers: { 'Content-Type': 'application/json' }
-				});
+				return new Response(
+					JSON.stringify({ error: 'sessionId is required', code: 'INVALID_REQUEST' }),
+					{
+						status: 400,
+						headers: { 'Content-Type': 'application/json' }
+					}
+				);
 			}
 
 			if (!deviceSecret || typeof deviceSecret !== 'string') {
-				return new Response(JSON.stringify({ error: 'deviceSecret is required', code: 'INVALID_DEVICE' }), {
-					status: 401,
-					headers: { 'Content-Type': 'application/json' }
-				});
+				return new Response(
+					JSON.stringify({ error: 'deviceSecret is required', code: 'INVALID_DEVICE' }),
+					{
+						status: 401,
+						headers: { 'Content-Type': 'application/json' }
+					}
+				);
 			}
 
 			// Look up session by sessionId
@@ -60,28 +67,37 @@ http.route({
 
 			if (!session.deviceSecretHash) {
 				await ctx.runMutation(internal.auth.deleteSession, { userId: session.userId });
-				return new Response(JSON.stringify({ error: 'Device verification failed', code: 'INVALID_DEVICE' }), {
-					status: 401,
-					headers: { 'Content-Type': 'application/json' }
-				});
+				return new Response(
+					JSON.stringify({ error: 'Device verification failed', code: 'INVALID_DEVICE' }),
+					{
+						status: 401,
+						headers: { 'Content-Type': 'application/json' }
+					}
+				);
 			}
 
 			const validDevice = await verifyDeviceSecret(deviceSecret, session.deviceSecretHash);
 			if (!validDevice) {
 				await ctx.runMutation(internal.auth.deleteSession, { userId: session.userId });
-				return new Response(JSON.stringify({ error: 'Device verification failed', code: 'INVALID_DEVICE' }), {
-					status: 401,
-					headers: { 'Content-Type': 'application/json' }
-				});
+				return new Response(
+					JSON.stringify({ error: 'Device verification failed', code: 'INVALID_DEVICE' }),
+					{
+						status: 401,
+						headers: { 'Content-Type': 'application/json' }
+					}
+				);
 			}
 
 			// Get WorkOS client ID
 			const clientId = process.env.WORKOS_CLIENT_ID;
 			if (!clientId) {
-				return new Response(JSON.stringify({ error: 'Server configuration error', code: 'SERVER_ERROR' }), {
-					status: 500,
-					headers: { 'Content-Type': 'application/json' }
-				});
+				return new Response(
+					JSON.stringify({ error: 'Server configuration error', code: 'SERVER_ERROR' }),
+					{
+						status: 500,
+						headers: { 'Content-Type': 'application/json' }
+					}
+				);
 			}
 
 			// Call WorkOS to refresh the token
@@ -127,10 +143,13 @@ http.route({
 			const { access_token, refresh_token: newRefreshToken } = data;
 
 			if (!access_token) {
-				return new Response(JSON.stringify({ error: 'No access token in response', code: 'WORKOS_ERROR' }), {
-					status: 502,
-					headers: { 'Content-Type': 'application/json' }
-				});
+				return new Response(
+					JSON.stringify({ error: 'No access token in response', code: 'WORKOS_ERROR' }),
+					{
+						status: 502,
+						headers: { 'Content-Type': 'application/json' }
+					}
+				);
 			}
 
 			// Handle refresh token rotation
@@ -162,10 +181,13 @@ http.route({
 			});
 		} catch (error) {
 			console.error('Token refresh error:', error);
-			return new Response(JSON.stringify({ error: 'Internal server error', code: 'SERVER_ERROR' }), {
-				status: 500,
-				headers: { 'Content-Type': 'application/json' }
-			});
+			return new Response(
+				JSON.stringify({ error: 'Internal server error', code: 'SERVER_ERROR' }),
+				{
+					status: 500,
+					headers: { 'Content-Type': 'application/json' }
+				}
+			);
 		}
 	})
 });

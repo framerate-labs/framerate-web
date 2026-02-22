@@ -1,16 +1,15 @@
 import type {
+	MediaWork,
+	MediaWorkType,
 	TMDBCompanyDetailsResponse,
 	TMDBDiscoverResponse,
-	TMDBPersonDetailsResponse,
-	MediaWorkType,
-	MediaWork
+	TMDBPersonDetailsResponse
 } from '../types/entitiesTypes';
+
 import { fetchTMDBJson } from '../utils/tmdb';
 import { dedupeMediaWorks, sortMediaWorksByDateThenTitle } from './entitiesMediaWorkService';
 
-export function parseTMDBDiscoverResponse(
-	value: unknown
-): {
+export function parseTMDBDiscoverResponse(value: unknown): {
 	items: Array<{
 		id: number;
 		title: string | null;
@@ -48,8 +47,14 @@ export function parseTMDBDiscoverResponse(
 			};
 		})
 		.filter(
-			(item): item is { id: number; title: string | null; posterPath: string | null; releaseDate: string | null } =>
-				item !== null
+			(
+				item
+			): item is {
+				id: number;
+				title: string | null;
+				posterPath: string | null;
+				releaseDate: string | null;
+			} => item !== null
 		);
 
 	const totalPages =
@@ -102,7 +107,9 @@ export async function fetchCompanyMediaWorksFromTMDB(
 	return dedupeMediaWorks(rows).sort(sortMediaWorksByDateThenTitle);
 }
 
-export async function fetchPersonFromTMDB(tmdbPersonId: number): Promise<TMDBPersonDetailsResponse> {
+export async function fetchPersonFromTMDB(
+	tmdbPersonId: number
+): Promise<TMDBPersonDetailsResponse> {
 	const payload = (await fetchTMDBJson(`/person/${tmdbPersonId}`, {
 		params: {
 			append_to_response: 'combined_credits',
@@ -116,7 +123,9 @@ export async function fetchPersonFromTMDB(tmdbPersonId: number): Promise<TMDBPer
 	return payload;
 }
 
-export async function fetchCompanyFromTMDB(tmdbCompanyId: number): Promise<TMDBCompanyDetailsResponse> {
+export async function fetchCompanyFromTMDB(
+	tmdbCompanyId: number
+): Promise<TMDBCompanyDetailsResponse> {
 	const payload = (await fetchTMDBJson(`/company/${tmdbCompanyId}`)) as TMDBCompanyDetailsResponse;
 	if (!payload || typeof payload.id !== 'number' || typeof payload.name !== 'string') {
 		throw new Error('Invalid response structure from TMDB company API');

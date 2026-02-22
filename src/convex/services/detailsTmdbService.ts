@@ -19,6 +19,7 @@ import type {
 	TMDBMovieDetails,
 	TMDBTVDetails
 } from '../types/tmdb/detailsTypes';
+
 import { fetchTMDBJson } from '../utils/tmdb';
 
 /**
@@ -116,7 +117,7 @@ function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
 					name: data.belongs_to_collection.name,
 					posterPath: data.belongs_to_collection.poster_path,
 					backdropPath: data.belongs_to_collection.backdrop_path
-			  }
+				}
 			: null,
 		budget: data.budget,
 		credits: {

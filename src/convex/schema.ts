@@ -83,7 +83,9 @@ export default defineSchema({
 			})
 		),
 		fetchedAt: v.number()
-	}).index('by_queryKey_limit', ['queryKey', 'limit']).index('by_fetchedAt', ['fetchedAt']),
+	})
+		.index('by_queryKey_limit', ['queryKey', 'limit'])
+		.index('by_fetchedAt', ['fetchedAt']),
 
 	// Per-user search rate-limit buckets.
 	searchRateLimit: defineTable({

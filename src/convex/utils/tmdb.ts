@@ -5,7 +5,9 @@ const TMDB_API_BASE = 'https://api.themoviedb.org/3';
 function buildTMDBUrl(pathOrUrl: string, params?: TMDBFetchOptions['params']): string {
 	const url = pathOrUrl.startsWith('http')
 		? new URL(pathOrUrl)
-		: new URL(pathOrUrl.startsWith('/') ? `${TMDB_API_BASE}${pathOrUrl}` : `${TMDB_API_BASE}/${pathOrUrl}`);
+		: new URL(
+				pathOrUrl.startsWith('/') ? `${TMDB_API_BASE}${pathOrUrl}` : `${TMDB_API_BASE}/${pathOrUrl}`
+			);
 
 	if (params) {
 		for (const [key, value] of Object.entries(params)) {
@@ -17,24 +19,17 @@ function buildTMDBUrl(pathOrUrl: string, params?: TMDBFetchOptions['params']): s
 	return url.toString();
 }
 
-function formatTMDBErrorMessage(
-	response: Response,
-	payload: unknown
-): string {
+function formatTMDBErrorMessage(response: Response, payload: unknown): string {
 	const fallback = `TMDB API Error: ${response.status} ${response.statusText}`;
 	if (!payload || typeof payload !== 'object') return fallback;
 
 	const tmdbPayload = payload as TMDBErrorPayload;
 	const statusMessage =
-		typeof tmdbPayload.status_message === 'string'
-			? tmdbPayload.status_message.trim()
-			: '';
+		typeof tmdbPayload.status_message === 'string' ? tmdbPayload.status_message.trim() : '';
 	if (statusMessage.length === 0) return fallback;
 
 	const statusCode =
-		typeof tmdbPayload.status_code === 'number'
-			? tmdbPayload.status_code
-			: response.status;
+		typeof tmdbPayload.status_code === 'number' ? tmdbPayload.status_code : response.status;
 	return `TMDB API Error: ${statusCode} – ${statusMessage}`;
 }
 

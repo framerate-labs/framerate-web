@@ -1,11 +1,7 @@
 import type { Id } from '../_generated/dataModel';
+import type { getMovieBySource, getTVShowBySource, MediaSource } from '../utils/mediaLookup';
 import type { MediaType } from './mediaTypes';
 import type { NormalizedMediaDetails } from './tmdb/detailsTypes';
-import type {
-	MediaSource,
-	getMovieBySource,
-	getTVShowBySource
-} from '../utils/mediaLookup';
 
 export type SyncPolicy = 'tmdb_authoritative' | 'db_authoritative' | 'fill_if_empty';
 

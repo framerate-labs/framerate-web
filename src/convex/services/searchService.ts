@@ -4,7 +4,12 @@
  * Handles fetching, validating, and normalizing TMDB multi-search results.
  */
 
-import type { NormalizedSearchItem, TMDBSearchItem, TMDBSearchResponse } from '../types/tmdb/searchTypes';
+import type {
+	NormalizedSearchItem,
+	TMDBSearchItem,
+	TMDBSearchResponse
+} from '../types/tmdb/searchTypes';
+
 import { fetchTMDBJson } from '../utils/tmdb';
 
 function isSearchResponse(value: unknown): value is TMDBSearchResponse {

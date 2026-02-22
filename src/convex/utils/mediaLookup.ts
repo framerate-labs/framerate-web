@@ -1,5 +1,5 @@
-import type { QueryCtx, MutationCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
+import type { MutationCtx, QueryCtx } from '../_generated/server';
 import type { MediaSource } from '../types/mediaTypes';
 
 export type { MediaSource, MediaType } from '../types/mediaTypes';
@@ -16,21 +16,21 @@ export async function getMovieBySource(
 	ctx: QueryCtx | MutationCtx,
 	source: MediaSource,
 	externalId: number | string
-	): Promise<{
-		_id: Id<'movies'>;
-		tmdbId?: number;
-		traktId?: number;
-		imdbId?: string;
-		title: string;
-		posterPath: string | null;
-		backdropPath: string | null;
-		releaseDate: string | null;
-		isAnime?: boolean;
-		director?: string | null;
-		detailSchemaVersion?: number | null;
-		detailFetchedAt?: number | null;
-		creatorCredits?: unknown[] | null;
-	} | null> {
+): Promise<{
+	_id: Id<'movies'>;
+	tmdbId?: number;
+	traktId?: number;
+	imdbId?: string;
+	title: string;
+	posterPath: string | null;
+	backdropPath: string | null;
+	releaseDate: string | null;
+	isAnime?: boolean;
+	director?: string | null;
+	detailSchemaVersion?: number | null;
+	detailFetchedAt?: number | null;
+	creatorCredits?: unknown[] | null;
+} | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
 			.query('movies')
@@ -62,21 +62,21 @@ export async function getTVShowBySource(
 	ctx: QueryCtx | MutationCtx,
 	source: MediaSource,
 	externalId: number | string
-	): Promise<{
-		_id: Id<'tvShows'>;
-		tmdbId?: number;
-		traktId?: number;
-		imdbId?: string;
-		title: string;
-		posterPath: string | null;
-		backdropPath: string | null;
-		releaseDate: string | null;
-		isAnime?: boolean;
-		creator?: string | null;
-		detailSchemaVersion?: number | null;
-		detailFetchedAt?: number | null;
-		creatorCredits?: unknown[] | null;
-	} | null> {
+): Promise<{
+	_id: Id<'tvShows'>;
+	tmdbId?: number;
+	traktId?: number;
+	imdbId?: string;
+	title: string;
+	posterPath: string | null;
+	backdropPath: string | null;
+	releaseDate: string | null;
+	isAnime?: boolean;
+	creator?: string | null;
+	detailSchemaVersion?: number | null;
+	detailFetchedAt?: number | null;
+	creatorCredits?: unknown[] | null;
+} | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
 			.query('tvShows')

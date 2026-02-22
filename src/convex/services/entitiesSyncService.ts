@@ -62,7 +62,10 @@ export function toDesiredTVLinks(references: ResolvedTVReference[]): DesiredTVLi
 	}));
 }
 
-async function syncManagedLinks<TExistingRow extends { _id: ManagedLinkRowId }, TDesiredRow>(params: {
+async function syncManagedLinks<
+	TExistingRow extends { _id: ManagedLinkRowId },
+	TDesiredRow
+>(params: {
 	ctx: MutationCtx;
 	existingRows: TExistingRow[];
 	desiredRows: TDesiredRow[];

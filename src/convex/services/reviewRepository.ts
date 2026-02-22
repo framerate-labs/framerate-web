@@ -10,7 +10,9 @@ export async function getUserReviewForMedia(
 	if (resolved.mediaType === 'movie') {
 		const review = await ctx.db
 			.query('movieReviews')
-			.withIndex('by_userId_movieId', (q) => q.eq('userId', userId).eq('movieId', resolved.media._id))
+			.withIndex('by_userId_movieId', (q) =>
+				q.eq('userId', userId).eq('movieId', resolved.media._id)
+			)
 			.unique();
 		if (!review) return null;
 		return {
@@ -24,7 +26,9 @@ export async function getUserReviewForMedia(
 
 	const review = await ctx.db
 		.query('tvReviews')
-		.withIndex('by_userId_tvShowId', (q) => q.eq('userId', userId).eq('tvShowId', resolved.media._id))
+		.withIndex('by_userId_tvShowId', (q) =>
+			q.eq('userId', userId).eq('tvShowId', resolved.media._id)
+		)
 		.unique();
 	if (!review) return null;
 	return {
@@ -61,7 +65,9 @@ export async function deleteUserReviewForMedia(
 	if (resolved.mediaType === 'movie') {
 		const review = await ctx.db
 			.query('movieReviews')
-			.withIndex('by_userId_movieId', (q) => q.eq('userId', userId).eq('movieId', resolved.media._id))
+			.withIndex('by_userId_movieId', (q) =>
+				q.eq('userId', userId).eq('movieId', resolved.media._id)
+			)
 			.unique();
 		if (!review) return false;
 		await ctx.db.delete(review._id);
@@ -70,7 +76,9 @@ export async function deleteUserReviewForMedia(
 
 	const review = await ctx.db
 		.query('tvReviews')
-		.withIndex('by_userId_tvShowId', (q) => q.eq('userId', userId).eq('tvShowId', resolved.media._id))
+		.withIndex('by_userId_tvShowId', (q) =>
+			q.eq('userId', userId).eq('tvShowId', resolved.media._id)
+		)
 		.unique();
 	if (!review) return false;
 	await ctx.db.delete(review._id);
@@ -93,7 +101,10 @@ type UpsertReviewInput =
 			now: number;
 	  };
 
-export async function upsertUserReview(ctx: MutationCtx, input: UpsertReviewInput): Promise<number> {
+export async function upsertUserReview(
+	ctx: MutationCtx,
+	input: UpsertReviewInput
+): Promise<number> {
 	if (input.mediaType === 'movie') {
 		const existing = await ctx.db
 			.query('movieReviews')

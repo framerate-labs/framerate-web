@@ -19,9 +19,11 @@
  * - Revoked tokens are handled gracefully
  */
 
-import { v } from 'convex/values';
-import { internalMutation, internalQuery, mutation } from './_generated/server';
 import type { AuthErrorCodeValue } from './types/authTypes';
+
+import { v } from 'convex/values';
+
+import { internalMutation, internalQuery, mutation } from './_generated/server';
 import { hashDeviceSecret } from './utils/deviceSecret';
 
 // Error types for precise error handling

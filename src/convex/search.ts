@@ -1,10 +1,11 @@
+import type { NormalizedSearchItem } from './types/tmdb/searchTypes';
+
 import { v } from 'convex/values';
 
 import { internal } from './_generated/api';
 import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
-import type { NormalizedSearchItem } from './types/tmdb/searchTypes';
-import { upsertByExisting } from './utils/upsert';
 import { fetchSearchFromTMDB } from './services/searchService';
+import { upsertByExisting } from './utils/upsert';
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 20;
@@ -39,7 +40,9 @@ export const getCachedResults = internalQuery({
 	handler: async (ctx, args) => {
 		const cached = await ctx.db
 			.query('searchCache')
-			.withIndex('by_queryKey_limit', (q) => q.eq('queryKey', args.queryKey).eq('limit', args.limit))
+			.withIndex('by_queryKey_limit', (q) =>
+				q.eq('queryKey', args.queryKey).eq('limit', args.limit)
+			)
 			.unique();
 
 		if (!cached) return null;
@@ -76,7 +79,9 @@ export const storeCachedResults = internalMutation({
 			findExisting: () =>
 				ctx.db
 					.query('searchCache')
-					.withIndex('by_queryKey_limit', (q) => q.eq('queryKey', args.queryKey).eq('limit', args.limit))
+					.withIndex('by_queryKey_limit', (q) =>
+						q.eq('queryKey', args.queryKey).eq('limit', args.limit)
+					)
 					.unique(),
 			onInsert: async () => {
 				await ctx.db.insert('searchCache', {

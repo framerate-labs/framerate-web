@@ -1,9 +1,11 @@
-import { v } from 'convex/values';
-import { query, internalAction, internalMutation } from './_generated/server';
-import { internal } from './_generated/api';
 import type { Filter, NormalizedTrendingItem, TimeWindow } from './types/tmdb/trendingTypes';
-import { upsertByExisting } from './utils/upsert';
+
+import { v } from 'convex/values';
+
+import { internal } from './_generated/api';
+import { internalAction, internalMutation, query } from './_generated/server';
 import { fetchTrendingFromTMDB } from './services/trendingService';
+import { upsertByExisting } from './utils/upsert';
 
 // Argument validators (reusable)
 const filterValidator = v.union(
@@ -118,10 +120,7 @@ export const refreshTrending = internalAction({
 		timeWindow: timeWindowValidator
 	},
 	handler: async (ctx, args) => {
-		const items = await fetchTrendingFromTMDB(
-			args.filter as Filter,
-			args.timeWindow as TimeWindow
-		);
+		const items = await fetchTrendingFromTMDB(args.filter as Filter, args.timeWindow as TimeWindow);
 
 		// Store in cache via mutation
 		await ctx.runMutation(internal.trending.storeTrendingCache, {
