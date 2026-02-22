@@ -4,48 +4,8 @@
  * Handles fetching, validating, and normalizing TMDB multi-search results.
  */
 
-interface TMDBError {
-	success?: boolean;
-	status_code?: number;
-	status_message?: string;
-}
-
-interface TMDBSearchItem {
-	id: number;
-	media_type: 'movie' | 'tv' | 'person';
-	title?: string;
-	name?: string;
-	original_title?: string;
-	original_name?: string;
-	overview?: string;
-	poster_path: string | null;
-	backdrop_path: string | null;
-	popularity: number;
-	release_date?: string;
-	first_air_date?: string;
-	vote_average?: number;
-	vote_count?: number;
-	adult: boolean;
-}
-
-interface TMDBSearchResponse {
-	results: TMDBSearchItem[];
-}
-
-export interface NormalizedSearchItem {
-	id: number;
-	mediaType: 'movie' | 'tv';
-	title: string;
-	originalTitle: string;
-	overview?: string;
-	posterPath: string | null;
-	backdropPath: string | null;
-	popularity: number;
-	releaseDate: string | null;
-	voteAverage: number | null;
-	voteCount: number | null;
-	adult: boolean;
-}
+import type { NormalizedSearchItem, TMDBSearchItem, TMDBSearchResponse } from '../types/tmdb/searchTypes';
+import { fetchTMDBJson } from '../utils/tmdb';
 
 function isSearchResponse(value: unknown): value is TMDBSearchResponse {
 	if (!value || typeof value !== 'object') return false;
@@ -83,40 +43,14 @@ export async function fetchSearchFromTMDB(
 	query: string,
 	limit: number = 10
 ): Promise<NormalizedSearchItem[]> {
-	const apiToken = process.env.TMDB_API_TOKEN;
-	if (!apiToken) {
-		throw new Error('Server misconfiguration: missing TMDB_API_TOKEN');
-	}
-
-	const params = new URLSearchParams({
-		query,
-		include_adult: 'false',
-		language: 'en-US',
-		page: '1'
-	});
-
-	const response = await fetch(`https://api.themoviedb.org/3/search/multi?${params}`, {
-		method: 'GET',
-		headers: {
-			accept: 'application/json',
-			Authorization: `Bearer ${apiToken}`
+	const rawData = await fetchTMDBJson('/search/multi', {
+		params: {
+			query,
+			include_adult: false,
+			language: 'en-US',
+			page: 1
 		}
 	});
-
-	if (!response.ok) {
-		let message = `TMDB API Error: ${response.status} ${response.statusText}`;
-		try {
-			const tmdbError = (await response.json()) as TMDBError;
-			if (tmdbError?.status_message) {
-				message = `TMDB API Error: ${tmdbError.status_code ?? response.status} – ${tmdbError.status_message}`;
-			}
-		} catch {
-			// Non-JSON error body
-		}
-		throw new Error(message);
-	}
-
-	const rawData = await response.json();
 	if (!isSearchResponse(rawData)) {
 		throw new Error('Invalid response structure from TMDB search API');
 	}

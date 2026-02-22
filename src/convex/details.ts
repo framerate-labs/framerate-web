@@ -1,19 +1,34 @@
 import type { Id } from './_generated/dataModel';
-import type { ActionCtx, MutationCtx } from './_generated/server';
-import type { MediaType, NormalizedMediaDetails } from './services/detailsService';
-import type { MediaSource } from './lib/mediaLookup';
+import type { ActionCtx } from './_generated/server';
+import type { MediaType } from './types/mediaTypes';
+import type { NormalizedMediaDetails } from './types/tmdb/detailsTypes';
+import type {
+	DetailRefreshDecision,
+	EnrichmentCompanyInput,
+	HeaderContributorInput,
+	PreparedDetailSync,
+	RefreshCandidate,
+	RefreshIfStaleArgs,
+	RefreshIfStaleResult,
+	StoredEpisodeSummary,
+	StoredMediaSnapshot,
+	StoredMovieDoc,
+	StoredTVDoc,
+	SweepStaleDetailsResult,
+	SyncPolicy
+} from './types/detailsTypes';
+import type { MediaSource } from './utils/mediaLookup';
 
 import { v } from 'convex/values';
 
 import { internal } from './_generated/api';
 import { action, internalAction, internalMutation, internalQuery, query } from './_generated/server';
 import { fetchDetailsFromTMDB } from './services/detailsService';
-import { getMovieBySource, getTVShowBySource } from './lib/mediaLookup';
+import { getMovieBySource, getTVShowBySource } from './utils/mediaLookup';
 
 // Argument validators
 const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));
 const sourceValidator = v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb'));
-const MEDIA_METADATA_VERSION = 1;
 const DETAIL_SCHEMA_VERSION = 1;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -27,13 +42,6 @@ const DETAIL_SWEEPER_SCAN_PER_TYPE = 150;
 const DETAIL_SWEEPER_MAX_REFRESHES = 36;
 const DETAIL_SWEEPER_BATCH_SIZE = 6;
 
-// Sync policy semantics:
-// - tmdb_authoritative: TMDB owns this field. Incoming TMDB value replaces DB when changed.
-//   `undefined` means "no incoming update", while `null` is treated as a real authoritative value.
-// - db_authoritative: DB/admin owns this field after first set. TMDB can only fill when DB is empty.
-// - fill_if_empty: one-time enrichment field. Behaves like db_authoritative but conveys seed-only intent.
-type SyncPolicy = 'tmdb_authoritative' | 'db_authoritative' | 'fill_if_empty';
-
 const MOVIE_SYNC_POLICY = {
 	title: 'tmdb_authoritative',
 	posterPath: 'db_authoritative',
@@ -43,8 +51,6 @@ const MOVIE_SYNC_POLICY = {
 	status: 'tmdb_authoritative',
 	runtime: 'tmdb_authoritative',
 	isAnime: 'db_authoritative',
-	primaryStudioTmdbId: 'tmdb_authoritative',
-	primaryStudioName: 'tmdb_authoritative',
 	director: 'tmdb_authoritative',
 	creatorCredits: 'tmdb_authoritative'
 } as const satisfies Record<string, SyncPolicy>;
@@ -61,8 +67,6 @@ const TV_SYNC_POLICY = {
 	lastEpisodeToAir: 'tmdb_authoritative',
 	nextEpisodeToAir: 'tmdb_authoritative',
 	isAnime: 'db_authoritative',
-	primaryStudioTmdbId: 'tmdb_authoritative',
-	primaryStudioName: 'tmdb_authoritative',
 	creator: 'tmdb_authoritative',
 	creatorCredits: 'tmdb_authoritative'
 } as const satisfies Record<string, SyncPolicy>;
@@ -73,137 +77,12 @@ const detailsEpisodeValidator = v.object({
 	episodeNumber: v.number()
 });
 
-const enrichmentCompanyValidator = v.object({
-	tmdbId: v.number(),
-	name: v.string(),
-	logoPath: v.union(v.string(), v.null()),
-	originCountry: v.union(v.string(), v.null()),
-	role: v.string(),
-	billingOrder: v.number()
-});
-
 const detailCreatorCreditValidator = v.object({
 	type: v.union(v.literal('person'), v.literal('company')),
 	tmdbId: v.union(v.number(), v.null()),
 	name: v.string(),
 	role: v.union(v.string(), v.null())
 });
-
-type EnrichmentCompanyInput = {
-	tmdbId: number;
-	name: string;
-	logoPath: string | null;
-	originCountry: string | null;
-	role: string;
-	billingOrder: number;
-};
-
-type PrimaryStudio = {
-	tmdbId: number;
-	name: string;
-};
-
-type HeaderContributorInput = {
-	type: 'person' | 'company';
-	tmdbId: number | null;
-	name: string;
-	role: string | null;
-};
-
-type StoredEpisodeSummary = {
-	airDate: string | null;
-	seasonNumber: number;
-	episodeNumber: number;
-};
-
-type DetailRefreshDecision = {
-	needsRefresh: boolean;
-	hardStale: boolean;
-	reason: string;
-};
-
-type StoredMediaSnapshot = {
-	metadataVersion?: number | null;
-	detailSchemaVersion?: number | null;
-	detailFetchedAt?: number | null;
-	nextRefreshAt?: number | null;
-	releaseDate?: string | null;
-	overview?: string | null;
-	status?: string | null;
-	runtime?: number | null;
-	numberOfSeasons?: number | null;
-	lastAirDate?: string | null;
-	lastEpisodeToAir?: StoredEpisodeSummary | null;
-	nextEpisodeToAir?: StoredEpisodeSummary | null;
-	posterPath?: string | null;
-	backdropPath?: string | null;
-	primaryStudioTmdbId?: number | null;
-	director?: string | null;
-	creator?: string | null;
-	creatorCredits?: HeaderContributorInput[] | null;
-};
-
-type RefreshIfStaleResult = {
-	refreshed: boolean;
-	reason: string;
-	nextRefreshAt: number | null;
-};
-
-type SweepStaleDetailsResult = {
-	scanned: number;
-	selected: number;
-	refreshed: number;
-	skipped: number;
-	failed: number;
-};
-
-type RefreshIfStaleArgs = {
-	mediaType: 'movie' | 'tv';
-	id: number | string;
-	source?: 'tmdb' | 'trakt' | 'imdb';
-	force?: boolean;
-};
-
-type RefreshCandidate = {
-	mediaType: 'movie' | 'tv';
-	id: number;
-	nextRefreshAt: number;
-};
-
-type PreparedDetailSync = {
-	details: NormalizedMediaDetails;
-	companies: EnrichmentCompanyInput[];
-	isAnime: boolean;
-	primaryStudio: PrimaryStudio | null;
-	creatorCredits: HeaderContributorInput[];
-};
-
-type StoredMovieDoc = NonNullable<Awaited<ReturnType<typeof getMovieBySource>>> & {
-	overview?: string | null;
-	status?: string;
-	runtime?: number | null;
-	detailSchemaVersion?: number;
-	detailFetchedAt?: number;
-	nextRefreshAt?: number;
-	refreshErrorCount?: number;
-	lastRefreshErrorAt?: number;
-	creatorCredits?: HeaderContributorInput[];
-};
-
-type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySource>>> & {
-	overview?: string | null;
-	status?: string;
-	numberOfSeasons?: number;
-	lastAirDate?: string | null;
-	lastEpisodeToAir?: StoredEpisodeSummary | null;
-	nextEpisodeToAir?: StoredEpisodeSummary | null;
-	detailSchemaVersion?: number;
-	detailFetchedAt?: number;
-	nextRefreshAt?: number;
-	refreshErrorCount?: number;
-	lastRefreshErrorAt?: number;
-	creatorCredits?: HeaderContributorInput[];
-};
 
 function isMissingValue(value: unknown): boolean {
 	return value === null || value === undefined;
@@ -319,18 +198,19 @@ function shouldRetryDueToPotentialRegression(
 		}
 	}
 
-	if (
-		stored.primaryStudioTmdbId !== null &&
-		stored.primaryStudioTmdbId !== undefined &&
-		prepared.primaryStudio === null
-	) {
-		return true;
-	}
 	if ((stored.creatorCredits ?? []).length > 0 && prepared.creatorCredits.length === 0) {
 		return true;
 	}
 
 	return false;
+}
+
+function shouldRetryDueToSparseInitialPayload(prepared: PreparedDetailSync): boolean {
+	const missingOverview =
+		prepared.details.overview === null || prepared.details.overview.trim().length === 0;
+	const missingTitle = prepared.details.title.trim().length === 0;
+	const missingCredits = prepared.creatorCredits.length === 0;
+	return missingOverview && missingTitle && missingCredits;
 }
 
 async function fetchPreparedDetailsForSync(
@@ -340,13 +220,10 @@ async function fetchPreparedDetailsForSync(
 	const details = await fetchDetailsFromTMDB(mediaType, id);
 	const companies = buildCompanies(details);
 	const isAnime = computeIsAnime(details);
-	const primaryStudio = pickPrimaryStudio(companies, isAnime);
-	const creatorCredits = buildCreatorCredits(details, isAnime, primaryStudio);
+	const creatorCredits = buildCreatorCredits(details, isAnime, companies);
 	return {
 		details,
-		companies,
 		isAnime,
-		primaryStudio,
 		creatorCredits
 	};
 }
@@ -381,19 +258,29 @@ function dedupeCompanies(companies: EnrichmentCompanyInput[]): EnrichmentCompany
 function pickPrimaryStudio(
 	companies: EnrichmentCompanyInput[],
 	isAnime: boolean
-): PrimaryStudio | null {
+): HeaderContributorInput | null {
 	if (companies.length === 0) return null;
 
 	if (isAnime) {
 		const japanese = companies.find((company) => company.originCountry === 'JP');
 		if (japanese) {
-			return { tmdbId: japanese.tmdbId, name: japanese.name };
+			return {
+				type: 'company',
+				tmdbId: japanese.tmdbId,
+				name: japanese.name,
+				role: 'studio'
+			};
 		}
 	}
 
 	const first = companies[0];
 	if (!first) return null;
-	return { tmdbId: first.tmdbId, name: first.name };
+	return {
+		type: 'company',
+		tmdbId: first.tmdbId,
+		name: first.name,
+		role: 'studio'
+	};
 }
 
 function buildCompanies(details: NormalizedMediaDetails): EnrichmentCompanyInput[] {
@@ -428,41 +315,47 @@ function dedupeCreatorCredits(
 function buildCreatorCredits(
 	details: NormalizedMediaDetails,
 	isAnime: boolean,
-	primaryStudio: PrimaryStudio | null
+	companies: EnrichmentCompanyInput[]
 ): HeaderContributorInput[] {
-	if (isAnime && primaryStudio) {
-		return [
-			{
-				type: 'company',
-				tmdbId: primaryStudio.tmdbId,
-				name: primaryStudio.name,
-				role: 'studio'
-			}
-		];
-	}
+	const primaryStudio = isAnime ? pickPrimaryStudio(companies, true) : null;
 
 	if (details.mediaType === 'movie') {
-		const directors = details.directorList.map((director) => ({
-			type: 'person' as const,
-			tmdbId: director.id,
-			name: director.name,
-			role: 'director'
-		}));
-		const deduped = dedupeCreatorCredits(directors);
-		if (deduped.length > 0) return deduped;
-
-		return dedupeCreatorCredits(
-			details.director
-				.split(',')
-				.map((name) => name.trim())
-				.filter((name) => name.length > 0)
-				.map((name) => ({
-					type: 'person' as const,
-					tmdbId: null,
-					name,
-					role: 'director'
-				}))
+		const directors = dedupeCreatorCredits(
+			details.directorList.map((director) => ({
+				type: 'person' as const,
+				tmdbId: director.id,
+				name: director.name,
+				role: 'director'
+			}))
 		);
+		const directorFallback =
+			directors.length > 0
+				? directors
+				: dedupeCreatorCredits(
+						details.director
+							.split(',')
+							.map((name) => name.trim())
+							.filter((name) => name.length > 0)
+							.map((name) => ({
+								type: 'person' as const,
+								tmdbId: null,
+								name,
+								role: 'director'
+							}))
+				  );
+
+			if (isAnime && primaryStudio) {
+				return dedupeCreatorCredits([
+					primaryStudio,
+					...directorFallback
+				]);
+			}
+
+		return directorFallback;
+	}
+
+	if (isAnime && primaryStudio) {
+		return [primaryStudio];
 	}
 
 	const creators = dedupeCreatorCredits(
@@ -582,157 +475,8 @@ function createRefreshLeaseKey(mediaType: MediaType, source: MediaSource, extern
 	return `${source}:${mediaType}:${externalId}`;
 }
 
-async function upsertCompany(
-	ctx: MutationCtx,
-	company: EnrichmentCompanyInput
-): Promise<Id<'companies'>> {
-	const existing = await ctx.db
-		.query('companies')
-		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', company.tmdbId))
-		.unique();
-
-	if (!existing) {
-		return await ctx.db.insert('companies', {
-			tmdbId: company.tmdbId,
-			name: company.name,
-			logoPath: company.logoPath
-		});
-	}
-
-	const patch: {
-		name?: string;
-		logoPath?: string | null;
-	} = {};
-
-	if (existing.name !== company.name) {
-		patch.name = company.name;
-	}
-	if (existing.logoPath !== company.logoPath) {
-		patch.logoPath = company.logoPath;
-	}
-
-	if (Object.keys(patch).length > 0) {
-		await ctx.db.patch(existing._id, patch);
-	}
-
-	return existing._id;
-}
-async function syncMovieCompanies(
-	ctx: MutationCtx,
-	movieId: Id<'movies'>,
-	companies: EnrichmentCompanyInput[]
-): Promise<void> {
-	const existing = await ctx.db
-		.query('movieCompanies')
-		.withIndex('by_movieId', (q) => q.eq('movieId', movieId))
-		.collect();
-	const existingByTmdbId = new Map(existing.map((row) => [row.companyTmdbId, row]));
-	const incomingTmdbIds = new Set<number>();
-
-	for (const company of companies) {
-		incomingTmdbIds.add(company.tmdbId);
-		const companyId = await upsertCompany(ctx, company);
-		const existingJoin = existingByTmdbId.get(company.tmdbId);
-
-		if (!existingJoin) {
-			await ctx.db.insert('movieCompanies', {
-				movieId,
-				companyId,
-				companyTmdbId: company.tmdbId,
-				role: company.role,
-				billingOrder: company.billingOrder,
-				source: 'tmdb'
-			});
-			continue;
-		}
-
-		const patch: {
-			companyId?: Id<'companies'>;
-			role?: string;
-			billingOrder?: number;
-		} = {};
-
-		if (existingJoin.companyId !== companyId) {
-			patch.companyId = companyId;
-		}
-		if (existingJoin.role !== company.role) {
-			patch.role = company.role;
-		}
-		if (existingJoin.billingOrder !== company.billingOrder) {
-			patch.billingOrder = company.billingOrder;
-		}
-
-		if (Object.keys(patch).length > 0) {
-			await ctx.db.patch(existingJoin._id, patch);
-		}
-	}
-
-	for (const stale of existing) {
-		if (!incomingTmdbIds.has(stale.companyTmdbId)) {
-			await ctx.db.delete(stale._id);
-		}
-	}
-}
-
-async function syncTVCompanies(
-	ctx: MutationCtx,
-	tvShowId: Id<'tvShows'>,
-	companies: EnrichmentCompanyInput[]
-): Promise<void> {
-	const existing = await ctx.db
-		.query('tvCompanies')
-		.withIndex('by_tvShowId', (q) => q.eq('tvShowId', tvShowId))
-		.collect();
-	const existingByTmdbId = new Map(existing.map((row) => [row.companyTmdbId, row]));
-	const incomingTmdbIds = new Set<number>();
-
-	for (const company of companies) {
-		incomingTmdbIds.add(company.tmdbId);
-		const companyId = await upsertCompany(ctx, company);
-		const existingJoin = existingByTmdbId.get(company.tmdbId);
-
-		if (!existingJoin) {
-			await ctx.db.insert('tvCompanies', {
-				tvShowId,
-				companyId,
-				companyTmdbId: company.tmdbId,
-				role: company.role,
-				billingOrder: company.billingOrder,
-				source: 'tmdb'
-			});
-			continue;
-		}
-
-		const patch: {
-			companyId?: Id<'companies'>;
-			role?: string;
-			billingOrder?: number;
-		} = {};
-
-		if (existingJoin.companyId !== companyId) {
-			patch.companyId = companyId;
-		}
-		if (existingJoin.role !== company.role) {
-			patch.role = company.role;
-		}
-		if (existingJoin.billingOrder !== company.billingOrder) {
-			patch.billingOrder = company.billingOrder;
-		}
-
-		if (Object.keys(patch).length > 0) {
-			await ctx.db.patch(existingJoin._id, patch);
-		}
-	}
-
-	for (const stale of existing) {
-		if (!incomingTmdbIds.has(stale.companyTmdbId)) {
-			await ctx.db.delete(stale._id);
-		}
-	}
-}
-
 /**
- * Internal Query: Get stored media images and metadata sync version from DB.
+ * Internal Query: Get stored media snapshot from DB.
  */
 export const getStoredMedia = internalQuery({
 	args: {
@@ -751,18 +495,16 @@ export const getStoredMedia = internalQuery({
 			return {
 				posterPath: movie.posterPath,
 				backdropPath: movie.backdropPath,
-				metadataVersion: movie.metadataVersion ?? null,
 				detailSchemaVersion: movie.detailSchemaVersion ?? null,
 				detailFetchedAt: movie.detailFetchedAt ?? null,
 				nextRefreshAt: movie.nextRefreshAt ?? null,
 				releaseDate: movie.releaseDate ?? null,
-				overview: movie.overview ?? null,
-				status: movie.status ?? null,
-				runtime: movie.runtime ?? null,
-				primaryStudioTmdbId: movie.primaryStudioTmdbId ?? null,
-				director: movie.director ?? null,
-				creatorCredits: movie.creatorCredits ?? []
-			};
+					overview: movie.overview ?? null,
+					status: movie.status ?? null,
+					runtime: movie.runtime ?? null,
+					director: movie.director ?? null,
+					creatorCredits: movie.creatorCredits
+				};
 		}
 
 		const tvShow = (await getTVShowBySource(
@@ -774,21 +516,19 @@ export const getStoredMedia = internalQuery({
 		return {
 			posterPath: tvShow.posterPath,
 			backdropPath: tvShow.backdropPath,
-			metadataVersion: tvShow.metadataVersion ?? null,
 			detailSchemaVersion: tvShow.detailSchemaVersion ?? null,
 			detailFetchedAt: tvShow.detailFetchedAt ?? null,
 			nextRefreshAt: tvShow.nextRefreshAt ?? null,
 			releaseDate: tvShow.releaseDate ?? null,
 			overview: tvShow.overview ?? null,
 			status: tvShow.status ?? null,
-			numberOfSeasons: tvShow.numberOfSeasons ?? null,
-			lastAirDate: tvShow.lastAirDate ?? null,
-			lastEpisodeToAir: tvShow.lastEpisodeToAir ?? null,
-			nextEpisodeToAir: tvShow.nextEpisodeToAir ?? null,
-			primaryStudioTmdbId: tvShow.primaryStudioTmdbId ?? null,
-			creator: tvShow.creator ?? null,
-			creatorCredits: tvShow.creatorCredits ?? []
-		};
+				numberOfSeasons: tvShow.numberOfSeasons ?? null,
+				lastAirDate: tvShow.lastAirDate ?? null,
+				lastEpisodeToAir: tvShow.lastEpisodeToAir ?? null,
+				nextEpisodeToAir: tvShow.nextEpisodeToAir ?? null,
+				creator: tvShow.creator ?? null,
+				creatorCredits: tvShow.creatorCredits
+			};
 	}
 });
 
@@ -822,28 +562,24 @@ export const backfillRequiredDetailFields = internalMutation({
 					status?: string | null;
 					runtime?: number | null;
 					detailSchemaVersion?: number;
-					detailFetchedAt?: number | null;
-					nextRefreshAt?: number;
-					refreshErrorCount?: number;
-					lastRefreshErrorAt?: number | null;
-					primaryStudioTmdbId?: number | null;
-					primaryStudioName?: string | null;
-					director?: string | null;
-					creatorCredits?: HeaderContributorInput[];
-				} = {};
+						detailFetchedAt?: number | null;
+						nextRefreshAt?: number;
+						refreshErrorCount?: number;
+						lastRefreshErrorAt?: number | null;
+						director?: string | null;
+						creatorCredits?: HeaderContributorInput[];
+					} = {};
 
 				if (movie.overview === undefined) patch.overview = null;
 				if (movie.status === undefined) patch.status = null;
 				if (movie.runtime === undefined) patch.runtime = null;
 				if (movie.detailSchemaVersion === undefined) patch.detailSchemaVersion = 0;
 				if (movie.detailFetchedAt === undefined) patch.detailFetchedAt = null;
-				if (movie.nextRefreshAt === undefined) patch.nextRefreshAt = now;
-				if (movie.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
-				if (movie.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
-				if (movie.primaryStudioTmdbId === undefined) patch.primaryStudioTmdbId = null;
-				if (movie.primaryStudioName === undefined) patch.primaryStudioName = null;
-				if (movie.director === undefined) patch.director = null;
-				if (movie.creatorCredits === undefined) patch.creatorCredits = [];
+					if (movie.nextRefreshAt === undefined) patch.nextRefreshAt = now;
+					if (movie.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
+					if (movie.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
+					if (movie.director === undefined) patch.director = null;
+					if (movie.creatorCredits === undefined) patch.creatorCredits = [];
 
 				if (Object.keys(patch).length > 0) {
 					await ctx.db.patch(movie._id, patch);
@@ -880,15 +616,13 @@ export const backfillRequiredDetailFields = internalMutation({
 				lastEpisodeToAir?: StoredEpisodeSummary | null;
 				nextEpisodeToAir?: StoredEpisodeSummary | null;
 				detailSchemaVersion?: number;
-				detailFetchedAt?: number | null;
-				nextRefreshAt?: number;
-				refreshErrorCount?: number;
-				lastRefreshErrorAt?: number | null;
-				primaryStudioTmdbId?: number | null;
-				primaryStudioName?: string | null;
-				creator?: string | null;
-				creatorCredits?: HeaderContributorInput[];
-			} = {};
+					detailFetchedAt?: number | null;
+					nextRefreshAt?: number;
+					refreshErrorCount?: number;
+					lastRefreshErrorAt?: number | null;
+					creator?: string | null;
+					creatorCredits?: HeaderContributorInput[];
+				} = {};
 
 			if (tvShow.overview === undefined) patch.overview = null;
 			if (tvShow.status === undefined) patch.status = null;
@@ -898,13 +632,11 @@ export const backfillRequiredDetailFields = internalMutation({
 			if (tvShow.nextEpisodeToAir === undefined) patch.nextEpisodeToAir = null;
 			if (tvShow.detailSchemaVersion === undefined) patch.detailSchemaVersion = 0;
 			if (tvShow.detailFetchedAt === undefined) patch.detailFetchedAt = null;
-			if (tvShow.nextRefreshAt === undefined) patch.nextRefreshAt = now;
-			if (tvShow.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
-			if (tvShow.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
-			if (tvShow.primaryStudioTmdbId === undefined) patch.primaryStudioTmdbId = null;
-			if (tvShow.primaryStudioName === undefined) patch.primaryStudioName = null;
-			if (tvShow.creator === undefined) patch.creator = null;
-			if (tvShow.creatorCredits === undefined) patch.creatorCredits = [];
+				if (tvShow.nextRefreshAt === undefined) patch.nextRefreshAt = now;
+				if (tvShow.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
+				if (tvShow.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
+				if (tvShow.creator === undefined) patch.creator = null;
+				if (tvShow.creatorCredits === undefined) patch.creatorCredits = [];
 
 			if (Object.keys(patch).length > 0) {
 				await ctx.db.patch(tvShow._id, patch);
@@ -928,7 +660,7 @@ export const backfillRequiredDetailFields = internalMutation({
 });
 
 /**
- * Internal Mutation: Upsert media data and synchronize company relations.
+ * Internal Mutation: Upsert media details.
  */
 export const insertMedia = internalMutation({
 	args: {
@@ -946,16 +678,13 @@ export const insertMedia = internalMutation({
 		lastAirDate: v.union(v.string(), v.null()),
 		lastEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),
 		nextEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),
-		detailSchemaVersion: v.number(),
-		detailFetchedAt: v.number(),
-		nextRefreshAt: v.number(),
-		isAnime: v.boolean(),
-		primaryStudioTmdbId: v.union(v.number(), v.null()),
-		primaryStudioName: v.union(v.string(), v.null()),
-		director: v.union(v.string(), v.null()),
-		creator: v.union(v.string(), v.null()),
-		creatorCredits: v.array(detailCreatorCreditValidator),
-		companies: v.array(enrichmentCompanyValidator)
+			detailSchemaVersion: v.number(),
+			detailFetchedAt: v.number(),
+			nextRefreshAt: v.number(),
+			isAnime: v.boolean(),
+			director: v.union(v.string(), v.null()),
+			creator: v.union(v.string(), v.null()),
+			creatorCredits: v.array(detailCreatorCreditValidator)
 	},
 	handler: async (ctx, args) => {
 		const incomingCreatorCredits = dedupeCreatorCredits(
@@ -979,17 +708,15 @@ export const insertMedia = internalMutation({
 					posterPath: string | null;
 					backdropPath: string | null;
 					releaseDate: string | null;
-					metadataVersion: number;
 					detailSchemaVersion: number;
 					detailFetchedAt: number;
-					nextRefreshAt: number;
-					refreshErrorCount: number;
-					isAnime: boolean;
-					primaryStudioTmdbId: number | null;
-					primaryStudioName: string | null;
-					director: string | null;
-					creatorCredits: HeaderContributorInput[];
-					overview: string | null;
+						nextRefreshAt: number;
+						refreshErrorCount: number;
+						lastRefreshErrorAt: number | null;
+						isAnime: boolean;
+						director: string | null;
+						creatorCredits: HeaderContributorInput[];
+						overview: string | null;
 					status: string;
 					runtime: number | null;
 				} = {
@@ -997,17 +724,15 @@ export const insertMedia = internalMutation({
 					posterPath: args.posterPath,
 					backdropPath: args.backdropPath,
 					releaseDate: args.releaseDate,
-					metadataVersion: MEDIA_METADATA_VERSION,
 					detailSchemaVersion: args.detailSchemaVersion,
 					detailFetchedAt: args.detailFetchedAt,
-					nextRefreshAt: args.nextRefreshAt,
-					refreshErrorCount: 0,
-					isAnime: args.isAnime,
-					primaryStudioTmdbId: args.primaryStudioTmdbId,
-					primaryStudioName: args.primaryStudioName,
-					director: args.director,
-					creatorCredits: incomingCreatorCredits,
-					overview: args.overview,
+						nextRefreshAt: args.nextRefreshAt,
+						refreshErrorCount: 0,
+						lastRefreshErrorAt: null,
+						isAnime: args.isAnime,
+						director: args.director,
+						creatorCredits: incomingCreatorCredits,
+						overview: args.overview,
 					status: args.status,
 					runtime: args.runtime
 				};
@@ -1028,17 +753,15 @@ export const insertMedia = internalMutation({
 					posterPath?: string | null;
 					backdropPath?: string | null;
 					releaseDate?: string | null;
-					metadataVersion?: number;
 					detailSchemaVersion?: number;
 					detailFetchedAt?: number;
-					nextRefreshAt?: number;
-					refreshErrorCount?: number;
-					isAnime?: boolean;
-					primaryStudioTmdbId?: number | null;
-					primaryStudioName?: string | null;
-					director?: string | null;
-					creatorCredits?: HeaderContributorInput[];
-					overview?: string | null;
+						nextRefreshAt?: number;
+						refreshErrorCount?: number;
+						lastRefreshErrorAt?: number | null;
+						isAnime?: boolean;
+						director?: string | null;
+						creatorCredits?: HeaderContributorInput[];
+						overview?: string | null;
 					status?: string;
 					runtime?: number | null;
 				} = {};
@@ -1075,9 +798,6 @@ export const insertMedia = internalMutation({
 				) {
 					patch.releaseDate = args.releaseDate;
 				}
-				if ((existing.metadataVersion ?? 0) !== MEDIA_METADATA_VERSION) {
-					patch.metadataVersion = MEDIA_METADATA_VERSION;
-				}
 				if ((existing.detailSchemaVersion ?? 0) !== args.detailSchemaVersion) {
 					patch.detailSchemaVersion = args.detailSchemaVersion;
 				}
@@ -1089,6 +809,9 @@ export const insertMedia = internalMutation({
 				}
 				if ((existing.refreshErrorCount ?? 0) !== 0) {
 					patch.refreshErrorCount = 0;
+				}
+				if (existing.lastRefreshErrorAt === undefined) {
+					patch.lastRefreshErrorAt = null;
 				}
 				if (
 					shouldApplySyncPolicy(
@@ -1123,30 +846,12 @@ export const insertMedia = internalMutation({
 						existing.isAnime,
 						args.isAnime
 					)
-				) {
-					patch.isAnime = args.isAnime;
-				}
-				if (
-					shouldApplySyncPolicy(
-						MOVIE_SYNC_POLICY.primaryStudioTmdbId,
-						existing.primaryStudioTmdbId,
-						args.primaryStudioTmdbId
-					)
-				) {
-					patch.primaryStudioTmdbId = args.primaryStudioTmdbId;
-				}
-				if (
-					shouldApplySyncPolicy(
-						MOVIE_SYNC_POLICY.primaryStudioName,
-						existing.primaryStudioName,
-						args.primaryStudioName
-					)
-				) {
-					patch.primaryStudioName = args.primaryStudioName;
-				}
-				if (
-					shouldApplySyncPolicy(
-						MOVIE_SYNC_POLICY.director,
+					) {
+						patch.isAnime = args.isAnime;
+					}
+					if (
+						shouldApplySyncPolicy(
+							MOVIE_SYNC_POLICY.director,
 						existing.director,
 						args.director,
 						{ treatUnknownAsMissing: true }
@@ -1173,7 +878,6 @@ export const insertMedia = internalMutation({
 				}
 			}
 
-			await syncMovieCompanies(ctx, movieId, args.companies as EnrichmentCompanyInput[]);
 			return;
 		}
 
@@ -1193,17 +897,15 @@ export const insertMedia = internalMutation({
 				posterPath: string | null;
 				backdropPath: string | null;
 				releaseDate: string | null;
-				metadataVersion: number;
 				detailSchemaVersion: number;
 				detailFetchedAt: number;
-				nextRefreshAt: number;
-				refreshErrorCount: number;
-				isAnime: boolean;
-				primaryStudioTmdbId: number | null;
-				primaryStudioName: string | null;
-				creator: string | null;
-				creatorCredits: HeaderContributorInput[];
-				overview: string | null;
+					nextRefreshAt: number;
+					refreshErrorCount: number;
+					lastRefreshErrorAt: number | null;
+					isAnime: boolean;
+					creator: string | null;
+					creatorCredits: HeaderContributorInput[];
+					overview: string | null;
 				status: string;
 				numberOfSeasons?: number | null;
 				lastAirDate: string | null;
@@ -1214,14 +916,12 @@ export const insertMedia = internalMutation({
 				posterPath: args.posterPath,
 				backdropPath: args.backdropPath,
 				releaseDate: args.releaseDate,
-				metadataVersion: MEDIA_METADATA_VERSION,
 				detailSchemaVersion: args.detailSchemaVersion,
 				detailFetchedAt: args.detailFetchedAt,
 				nextRefreshAt: args.nextRefreshAt,
 				refreshErrorCount: 0,
+				lastRefreshErrorAt: null,
 				isAnime: args.isAnime,
-				primaryStudioTmdbId: args.primaryStudioTmdbId,
-				primaryStudioName: args.primaryStudioName,
 				creator: args.creator,
 				creatorCredits: incomingCreatorCredits,
 				overview: args.overview,
@@ -1248,14 +948,12 @@ export const insertMedia = internalMutation({
 				posterPath?: string | null;
 				backdropPath?: string | null;
 				releaseDate?: string | null;
-				metadataVersion?: number;
 				detailSchemaVersion?: number;
 				detailFetchedAt?: number;
 				nextRefreshAt?: number;
 				refreshErrorCount?: number;
+				lastRefreshErrorAt?: number | null;
 				isAnime?: boolean;
-				primaryStudioTmdbId?: number | null;
-				primaryStudioName?: string | null;
 				creator?: string | null;
 				creatorCredits?: HeaderContributorInput[];
 				overview?: string | null;
@@ -1298,9 +996,6 @@ export const insertMedia = internalMutation({
 			) {
 				patch.releaseDate = args.releaseDate;
 			}
-			if ((existing.metadataVersion ?? 0) !== MEDIA_METADATA_VERSION) {
-				patch.metadataVersion = MEDIA_METADATA_VERSION;
-			}
 			if ((existing.detailSchemaVersion ?? 0) !== args.detailSchemaVersion) {
 				patch.detailSchemaVersion = args.detailSchemaVersion;
 			}
@@ -1312,6 +1007,9 @@ export const insertMedia = internalMutation({
 			}
 			if ((existing.refreshErrorCount ?? 0) !== 0) {
 				patch.refreshErrorCount = 0;
+			}
+			if (existing.lastRefreshErrorAt === undefined) {
+				patch.lastRefreshErrorAt = null;
 			}
 			if (
 				shouldApplySyncPolicy(
@@ -1375,30 +1073,12 @@ export const insertMedia = internalMutation({
 					existing.isAnime,
 					args.isAnime
 				)
-			) {
-				patch.isAnime = args.isAnime;
-			}
-			if (
-				shouldApplySyncPolicy(
-					TV_SYNC_POLICY.primaryStudioTmdbId,
-					existing.primaryStudioTmdbId,
-					args.primaryStudioTmdbId
-				)
-			) {
-				patch.primaryStudioTmdbId = args.primaryStudioTmdbId;
-			}
-			if (
-				shouldApplySyncPolicy(
-					TV_SYNC_POLICY.primaryStudioName,
-					existing.primaryStudioName,
-					args.primaryStudioName
-				)
-			) {
-				patch.primaryStudioName = args.primaryStudioName;
-			}
-			if (
-				shouldApplySyncPolicy(
-					TV_SYNC_POLICY.creator,
+				) {
+					patch.isAnime = args.isAnime;
+				}
+				if (
+					shouldApplySyncPolicy(
+						TV_SYNC_POLICY.creator,
 					existing.creator,
 					args.creator,
 					{ treatUnknownAsMissing: true }
@@ -1425,9 +1105,39 @@ export const insertMedia = internalMutation({
 			}
 		}
 
-		await syncTVCompanies(ctx, tvShowId, args.companies as EnrichmentCompanyInput[]);
 	}
 });
+
+function evaluateStoredDecision(
+	stored: {
+		detailSchemaVersion?: number | null;
+		detailFetchedAt?: number | null;
+		nextRefreshAt?: number | null;
+		overview?: string | null;
+		status?: string | null;
+	},
+	now: number,
+	hasTypeSpecificMissing: boolean
+): DetailRefreshDecision {
+	const hardMissing =
+		(stored.detailSchemaVersion ?? 0) < DETAIL_SCHEMA_VERSION ||
+		stored.detailFetchedAt === null ||
+		stored.detailFetchedAt === undefined ||
+		stored.overview === undefined ||
+		stored.status === null ||
+		stored.status === undefined ||
+		hasTypeSpecificMissing;
+
+	if (hardMissing) {
+		return { needsRefresh: true, hardStale: true, reason: 'hard-stale' };
+	}
+
+	if ((stored.nextRefreshAt ?? 0) <= now) {
+		return { needsRefresh: true, hardStale: false, reason: 'soft-stale' };
+	}
+
+	return { needsRefresh: false, hardStale: false, reason: 'fresh' };
+}
 
 function evaluateStoredMovieDecision(
 	stored: {
@@ -1441,25 +1151,8 @@ function evaluateStoredMovieDecision(
 	},
 	now: number
 ): DetailRefreshDecision {
-	const hardMissing =
-		(stored.detailSchemaVersion ?? 0) < DETAIL_SCHEMA_VERSION ||
-		stored.detailFetchedAt === null ||
-		stored.detailFetchedAt === undefined ||
-		stored.overview === undefined ||
-		stored.status === null ||
-		stored.status === undefined ||
-		stored.runtime === undefined ||
-		stored.creatorCredits === undefined;
-
-	if (hardMissing) {
-		return { needsRefresh: true, hardStale: true, reason: 'hard-stale' };
-	}
-
-	if ((stored.nextRefreshAt ?? 0) <= now) {
-		return { needsRefresh: true, hardStale: false, reason: 'soft-stale' };
-	}
-
-	return { needsRefresh: false, hardStale: false, reason: 'fresh' };
+	const hasTypeSpecificMissing = stored.runtime === undefined || stored.creatorCredits === undefined;
+	return evaluateStoredDecision(stored, now, hasTypeSpecificMissing);
 }
 
 function evaluateStoredTVDecision(
@@ -1475,27 +1168,12 @@ function evaluateStoredTVDecision(
 	},
 	now: number
 ): DetailRefreshDecision {
-	const hardMissing =
-		(stored.detailSchemaVersion ?? 0) < DETAIL_SCHEMA_VERSION ||
-		stored.detailFetchedAt === null ||
-		stored.detailFetchedAt === undefined ||
-		stored.overview === undefined ||
-		stored.status === null ||
-		stored.status === undefined ||
+	const hasTypeSpecificMissing =
 		stored.numberOfSeasons === null ||
 		stored.numberOfSeasons === undefined ||
 		stored.lastAirDate === undefined ||
 		stored.creatorCredits === undefined;
-
-	if (hardMissing) {
-		return { needsRefresh: true, hardStale: true, reason: 'hard-stale' };
-	}
-
-	if ((stored.nextRefreshAt ?? 0) <= now) {
-		return { needsRefresh: true, hardStale: false, reason: 'soft-stale' };
-	}
-
-	return { needsRefresh: false, hardStale: false, reason: 'fresh' };
+	return evaluateStoredDecision(stored, now, hasTypeSpecificMissing);
 }
 
 export const tryAcquireRefreshLease = internalMutation({
@@ -1671,65 +1349,51 @@ export const recordRefreshFailure = internalMutation({
 	}
 });
 
+function buildHeaderContext(
+	credits: HeaderContributorInput[] | null | undefined,
+	isAnime: boolean,
+	defaultHeading: 'Directed by' | 'Created by'
+): {
+	heading: string;
+	isAnime: boolean;
+	contributors: HeaderContributorInput[];
+} {
+	const contributors = dedupeCreatorCredits(credits ?? []);
+	const hasCompanyContributor = contributors.some((contributor) => contributor.type === 'company');
+	return {
+		heading: isAnime && hasCompanyContributor ? 'Animated by' : defaultHeading,
+		isAnime,
+		contributors
+	};
+}
+
 export const getCached = query({
 	args: {
 		mediaType: mediaTypeValidator,
 		source: sourceValidator,
 		externalId: v.union(v.number(), v.string())
 	},
-	handler: async (ctx, args) => {
-		const now = Date.now();
-		if (args.mediaType === 'movie') {
-			const movie = (await getMovieBySource(
-				ctx,
-				args.source as MediaSource,
-				args.externalId
-			)) as StoredMovieDoc | null;
-			if (!movie || movie.tmdbId === undefined) return null;
+		handler: async (ctx, args) => {
+			const now = Date.now();
+			if (args.mediaType === 'movie') {
+				const movie = (await getMovieBySource(
+					ctx,
+					args.source as MediaSource,
+					args.externalId
+				)) as StoredMovieDoc | null;
+				if (!movie || movie.tmdbId === undefined) return null;
 
-			const isAnime = movie.isAnime ?? false;
-			let contributors = dedupeCreatorCredits(movie.creatorCredits ?? []);
-			if (contributors.length === 0) {
-				if (isAnime && movie.primaryStudioName) {
-					contributors = [
-						{
-							type: 'company',
-							tmdbId: movie.primaryStudioTmdbId ?? null,
-							name: movie.primaryStudioName,
-							role: 'studio'
-						}
-					];
-				} else {
-					contributors = (movie.director ?? '')
-						.split(',')
-						.map((name) => name.trim())
-						.filter((name) => name.length > 0)
-						.map((name) => ({
-							type: 'person' as const,
-							tmdbId: null,
-							name,
-							role: 'director'
-						}));
-				}
-			}
+				const headerContext = buildHeaderContext(movie.creatorCredits, movie.isAnime ?? false, 'Directed by');
 
-			const headerContext = {
-				heading: isAnime ? 'Animated by' : 'Directed by',
-				isAnime,
-				primaryStudioTmdbId: movie.primaryStudioTmdbId ?? null,
-				primaryStudioName: movie.primaryStudioName ?? null,
-				contributors
-			};
-
-			const refreshDecision = evaluateStoredMovieDecision(
-				{
+				const refreshDecision = evaluateStoredMovieDecision(
+					{
 					detailSchemaVersion: movie.detailSchemaVersion ?? null,
 					detailFetchedAt: movie.detailFetchedAt ?? null,
 					nextRefreshAt: movie.nextRefreshAt ?? null,
 					overview: movie.overview,
 					status: movie.status ?? null,
 					runtime: movie.runtime,
-					creatorCredits: movie.creatorCredits ?? []
+					creatorCredits: movie.creatorCredits
 				},
 				now
 			);
@@ -1755,46 +1419,13 @@ export const getCached = query({
 			};
 		}
 
-		const tvShow = (await getTVShowBySource(
-			ctx,
-			args.source as MediaSource,
-			args.externalId
-		)) as StoredTVDoc | null;
-		if (!tvShow || tvShow.tmdbId === undefined) return null;
-
-		const isAnime = tvShow.isAnime ?? false;
-		let contributors = dedupeCreatorCredits(tvShow.creatorCredits ?? []);
-		if (contributors.length === 0) {
-			if (isAnime && tvShow.primaryStudioName) {
-				contributors = [
-					{
-						type: 'company',
-						tmdbId: tvShow.primaryStudioTmdbId ?? null,
-						name: tvShow.primaryStudioName,
-						role: 'studio'
-					}
-				];
-			} else {
-				contributors = (tvShow.creator ?? '')
-					.split(',')
-					.map((name) => name.trim())
-					.filter((name) => name.length > 0)
-					.map((name) => ({
-						type: 'person' as const,
-						tmdbId: null,
-						name,
-						role: 'creator'
-					}));
-			}
-		}
-
-		const headerContext = {
-			heading: isAnime ? 'Animated by' : 'Created by',
-			isAnime,
-			primaryStudioTmdbId: tvShow.primaryStudioTmdbId ?? null,
-			primaryStudioName: tvShow.primaryStudioName ?? null,
-			contributors
-		};
+			const tvShow = (await getTVShowBySource(
+				ctx,
+				args.source as MediaSource,
+				args.externalId
+			)) as StoredTVDoc | null;
+			if (!tvShow || tvShow.tmdbId === undefined) return null;
+			const headerContext = buildHeaderContext(tvShow.creatorCredits, tvShow.isAnime ?? false, 'Created by');
 
 		const refreshDecision = evaluateStoredTVDecision(
 			{
@@ -1805,7 +1436,7 @@ export const getCached = query({
 				status: tvShow.status ?? null,
 				numberOfSeasons: tvShow.numberOfSeasons ?? null,
 				lastAirDate: tvShow.lastAirDate ?? null,
-				creatorCredits: tvShow.creatorCredits ?? []
+				creatorCredits: tvShow.creatorCredits
 			},
 			now
 		);
@@ -1924,18 +1555,30 @@ async function refreshIfStaleHandler(
 			effectiveStoredMedia = latestStored;
 		}
 
-		const mediaType = args.mediaType as MediaType;
-		let prepared = await fetchPreparedDetailsForSync(mediaType, args.id);
-		let shouldExpediteRecheck = false;
-		if (shouldRetryDueToPotentialRegression(mediaType, effectiveStoredMedia, prepared)) {
-			const retryPrepared = await fetchPreparedDetailsForSync(mediaType, args.id);
-			shouldExpediteRecheck = shouldRetryDueToPotentialRegression(
+			const mediaType = args.mediaType as MediaType;
+			let prepared = await fetchPreparedDetailsForSync(mediaType, args.id);
+			let shouldExpediteRecheck = false;
+			const hasExistingDetailSnapshot =
+				effectiveStoredMedia !== null &&
+				effectiveStoredMedia.detailFetchedAt !== null &&
+				effectiveStoredMedia.detailFetchedAt !== undefined;
+			const shouldRetryPotentialRegression = shouldRetryDueToPotentialRegression(
 				mediaType,
 				effectiveStoredMedia,
-				retryPrepared
+				prepared
 			);
-			prepared = retryPrepared;
-		}
+			const shouldRetrySparseInitial =
+				!hasExistingDetailSnapshot && shouldRetryDueToSparseInitialPayload(prepared);
+			if (shouldRetryPotentialRegression || shouldRetrySparseInitial) {
+				const retryPrepared = await fetchPreparedDetailsForSync(mediaType, args.id);
+				const stillPotentialRegression =
+					shouldRetryPotentialRegression &&
+					shouldRetryDueToPotentialRegression(mediaType, effectiveStoredMedia, retryPrepared);
+				const stillSparseInitial =
+					shouldRetrySparseInitial && shouldRetryDueToSparseInitialPayload(retryPrepared);
+				shouldExpediteRecheck = stillPotentialRegression || stillSparseInitial;
+				prepared = retryPrepared;
+			}
 
 		const refreshedAt = Date.now();
 		let nextRefreshAt = computeNextRefreshAt(prepared.details, refreshedAt);
@@ -1965,16 +1608,13 @@ async function refreshIfStaleHandler(
 				prepared.details.mediaType === 'tv'
 					? toStoredEpisodeSummary(prepared.details.nextEpisodeToAir)
 					: undefined,
-			detailSchemaVersion: DETAIL_SCHEMA_VERSION,
-			detailFetchedAt: refreshedAt,
-			nextRefreshAt,
-			isAnime: prepared.isAnime,
-			primaryStudioTmdbId: prepared.primaryStudio?.tmdbId ?? null,
-			primaryStudioName: prepared.primaryStudio?.name ?? null,
-			director: prepared.details.mediaType === 'movie' ? prepared.details.director : null,
-			creator: prepared.details.mediaType === 'tv' ? prepared.details.creator : null,
-			creatorCredits: prepared.creatorCredits,
-			companies: prepared.companies
+				detailSchemaVersion: DETAIL_SCHEMA_VERSION,
+				detailFetchedAt: refreshedAt,
+				nextRefreshAt,
+				isAnime: prepared.isAnime,
+				director: prepared.details.mediaType === 'movie' ? prepared.details.director : null,
+				creator: prepared.details.mediaType === 'tv' ? prepared.details.creator : null,
+				creatorCredits: prepared.creatorCredits
 		});
 
 		return {
@@ -2072,92 +1712,5 @@ export const sweepStaleDetails = internalAction({
 			skipped,
 			failed
 		};
-	}
-});
-
-/**
- * Action: Get media details from external source.
- */
-export const get = action({
-	args: {
-		mediaType: mediaTypeValidator,
-		id: v.union(v.number(), v.string()),
-		source: v.optional(sourceValidator)
-	},
-	handler: async (ctx, args): Promise<NormalizedMediaDetails> => {
-		const source = (args.source ?? 'tmdb') as MediaSource;
-
-		if (source !== 'tmdb') {
-			throw new Error(
-				`Source '${source}' is not yet implemented. Currently only 'tmdb' is supported for details.`
-			);
-		}
-
-		if (typeof args.id !== 'number') {
-			throw new Error('TMDB IDs must be numbers');
-		}
-
-		const [storedMedia, details] = await Promise.all([
-			ctx.runQuery(internal.details.getStoredMedia, {
-				mediaType: args.mediaType as MediaType,
-				source,
-				externalId: args.id
-			}),
-			fetchDetailsFromTMDB(args.mediaType as MediaType, args.id)
-		]);
-
-		const companies = buildCompanies(details);
-		const isAnime = computeIsAnime(details);
-		const primaryStudio = pickPrimaryStudio(companies, isAnime);
-		const nextRefreshAt = computeNextRefreshAt(details, Date.now());
-		const needsMetadataSync =
-			storedMedia === null ||
-			(storedMedia.metadataVersion ?? 0) !== MEDIA_METADATA_VERSION ||
-			(storedMedia.detailSchemaVersion ?? 0) !== DETAIL_SCHEMA_VERSION;
-
-		if (needsMetadataSync) {
-			await ctx.runMutation(internal.details.insertMedia, {
-				mediaType: args.mediaType as MediaType,
-				source,
-				externalId: args.id,
-				title: details.title,
-				posterPath: details.posterPath,
-				backdropPath: details.backdropPath,
-				releaseDate: details.releaseDate,
-				overview: details.overview,
-				status: details.status,
-				runtime: details.mediaType === 'movie' ? details.runtime : null,
-				numberOfSeasons: details.mediaType === 'tv' ? details.numberOfSeasons : undefined,
-				lastAirDate: details.mediaType === 'tv' ? details.lastAirDate : null,
-				lastEpisodeToAir:
-					details.mediaType === 'tv'
-						? toStoredEpisodeSummary(details.lastEpisodeToAir)
-						: undefined,
-				nextEpisodeToAir:
-					details.mediaType === 'tv'
-						? toStoredEpisodeSummary(details.nextEpisodeToAir)
-						: undefined,
-				detailSchemaVersion: DETAIL_SCHEMA_VERSION,
-				detailFetchedAt: Date.now(),
-				nextRefreshAt,
-				isAnime,
-				primaryStudioTmdbId: primaryStudio?.tmdbId ?? null,
-				primaryStudioName: primaryStudio?.name ?? null,
-				director: details.mediaType === 'movie' ? details.director : null,
-				creator: details.mediaType === 'tv' ? details.creator : null,
-				creatorCredits: buildCreatorCredits(details, isAnime, primaryStudio),
-				companies
-			});
-		}
-
-		if (storedMedia) {
-			return {
-				...details,
-				posterPath: storedMedia.posterPath ?? details.posterPath,
-				backdropPath: storedMedia.backdropPath ?? details.backdropPath
-			};
-		}
-
-		return details;
 	}
 });

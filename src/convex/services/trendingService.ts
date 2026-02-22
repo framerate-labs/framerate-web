@@ -5,85 +5,14 @@
  * Used by Convex actions to populate the trendingCache table.
  */
 
-export type TimeWindow = 'day' | 'week';
-export type Filter = 'all' | 'movie' | 'tv' | 'person';
-
-type TMDBError = {
-	success: boolean;
-	status_code: number;
-	status_message: string;
-};
-
-// Raw TMDB response types (snake_case)
-interface TMDBMediaBase {
-	adult: boolean;
-	backdrop_path: string | null;
-	genre_ids: number[];
-	id: number;
-	original_language: string;
-	overview: string;
-	popularity: number;
-	poster_path: string | null;
-	vote_average: number;
-	vote_count: number;
-}
-
-interface TMDBMovie extends TMDBMediaBase {
-	media_type: 'movie';
-	original_title: string;
-	release_date: string;
-	title: string;
-	video: boolean;
-}
-
-interface TMDBTVShow extends TMDBMediaBase {
-	media_type: 'tv';
-	first_air_date: string;
-	name: string;
-	origin_country: string[];
-	original_name: string;
-}
-
-interface TMDBPerson {
-	adult: boolean;
-	gender: number;
-	id: number;
-	known_for_department: string | null;
-	media_type: 'person';
-	name: string;
-	original_name: string;
-	popularity: number;
-	profile_path: string | null;
-}
-
-type TMDBTrendingItem = TMDBMovie | TMDBTVShow | TMDBPerson;
-
-interface TMDBTrendingResponse {
-	page: number;
-	results: TMDBTrendingItem[];
-	total_pages: number;
-	total_results: number;
-}
-
-// Normalized output type (camelCase, consistent shape)
-export interface NormalizedTrendingItem {
-	id: number;
-	mediaType: 'movie' | 'tv' | 'person';
-	title: string;
-	originalTitle: string;
-	overview?: string;
-	posterPath: string | null;
-	backdropPath: string | null;
-	popularity: number;
-	voteAverage?: number;
-	voteCount?: number;
-	releaseDate?: string;
-	genreIds?: number[];
-	adult: boolean;
-	// Person-specific
-	profilePath?: string | null;
-	knownForDepartment?: string | null;
-}
+import type {
+	Filter,
+	NormalizedTrendingItem,
+	TMDBTrendingItem,
+	TMDBTrendingResponse,
+	TimeWindow
+} from '../types/tmdb/trendingTypes';
+import { fetchTMDBJson } from '../utils/tmdb';
 
 /**
  * Validates TMDB response has expected structure.
@@ -134,14 +63,14 @@ function normalizeItem(item: TMDBTrendingItem): NormalizedTrendingItem {
 		return {
 			...base,
 			mediaType: 'tv',
-			title: item.name, // Normalize to "title"
+			title: item.name,
 			originalTitle: item.original_name,
 			overview: item.overview,
 			posterPath: item.poster_path,
 			backdropPath: item.backdrop_path,
 			voteAverage: item.vote_average,
 			voteCount: item.vote_count,
-			releaseDate: item.first_air_date, // Normalize to "releaseDate"
+			releaseDate: item.first_air_date,
 			genreIds: item.genre_ids
 		};
 	}
@@ -173,40 +102,15 @@ export async function fetchTrendingFromTMDB(
 	timeWindow: TimeWindow,
 	limit: number = 18
 ): Promise<NormalizedTrendingItem[]> {
-	const apiToken = process.env.TMDB_API_TOKEN;
-	if (!apiToken) {
-		throw new Error('Server misconfiguration: missing TMDB_API_TOKEN');
-	}
-
-	const url = `https://api.themoviedb.org/3/trending/${filter}/${timeWindow}?language=en-US`;
-
-	const response = await fetch(url, {
-		method: 'GET',
-		headers: {
-			accept: 'application/json',
-			Authorization: `Bearer ${apiToken}`
+	const rawData = await fetchTMDBJson(`/trending/${filter}/${timeWindow}`, {
+		params: {
+			language: 'en-US'
 		}
 	});
-
-	if (!response.ok) {
-		let message = `TMDB API Error: ${response.status} ${response.statusText}`;
-		try {
-			const tmdbError = (await response.json()) as TMDBError;
-			if (tmdbError?.status_message) {
-				message = `TMDB API Error: ${tmdbError.status_code} – ${tmdbError.status_message}`;
-			}
-		} catch {
-			// Non-JSON error body
-		}
-		throw new Error(message);
-	}
-
-	const rawData = await response.json();
 
 	if (!validateTMDBResponse(rawData)) {
 		throw new Error('Invalid response structure from TMDB API');
 	}
 
-	// Normalize and limit results
 	return rawData.results.slice(0, limit).map(normalizeItem);
 }

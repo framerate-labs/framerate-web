@@ -44,27 +44,25 @@ const detailCreatorCreditValidator = v.object({
 });
 
 export default defineSchema({
+	// Single-row app-wide configuration (hero artwork + feature flags).
 	appConfig: defineTable({
 		heroImage: v.object({
 			storageId: v.id('_storage'),
 			title: v.string(),
 			blurHash: v.optional(v.string())
 		}),
-
 		featureFlags: v.optional(v.record(v.string(), v.boolean()))
 	}),
 
-	// Cached trending data - one document per filter+timeWindow combination
+	// Cached TMDB trending results keyed by filter + time window.
 	trendingCache: defineTable({
 		filter: v.union(v.literal('all'), v.literal('movie'), v.literal('tv'), v.literal('person')),
 		timeWindow: v.union(v.literal('day'), v.literal('week')),
 		items: v.array(trendingMediaValidator),
-		fetchedAt: v.number() // timestamp for cache freshness
+		fetchedAt: v.number()
 	}).index('by_filter_timeWindow', ['filter', 'timeWindow']),
 
-
-	// Search cache - short-lived TMDB search result cache
-	// Keyed by normalized query + limit to avoid repeated external API calls
+	// Short-lived TMDB search result cache keyed by normalized query + limit.
 	searchCache: defineTable({
 		queryKey: v.string(),
 		limit: v.number(),
@@ -87,18 +85,17 @@ export default defineSchema({
 		fetchedAt: v.number()
 	}).index('by_queryKey_limit', ['queryKey', 'limit']).index('by_fetchedAt', ['fetchedAt']),
 
-	// Search rate limiting - per-user request bucket counters
+	// Per-user search rate-limit buckets.
 	searchRateLimit: defineTable({
 		userId: v.string(),
 		bucketStart: v.number(),
 		count: v.number(),
 		updatedAt: v.number()
 	})
-		.index('by_userId', ['userId'])
 		.index('by_userId_bucketStart', ['userId', 'bucketStart'])
 		.index('by_bucketStart', ['bucketStart']),
 
-	// Transient leases to dedupe stale detail refreshes across clients + sweeper.
+	// Transient refresh leases used to dedupe stale detail refresh jobs.
 	detailRefreshLeases: defineTable({
 		refreshKey: v.string(),
 		mediaType: v.union(v.literal('movie'), v.literal('tv')),
@@ -111,27 +108,18 @@ export default defineSchema({
 		.index('by_refreshKey', ['refreshKey'])
 		.index('by_leaseExpiresAt', ['leaseExpiresAt']),
 
-	// Movies table - stores movie metadata (data source hub)
-	// Supports multiple data sources (TMDB, Trakt, IMDB, etc.)
-	// A movie must have at least one source ID, but can have multiple
+	// Canonical movie records (multi-source IDs + DB-first detail snapshot).
 	movies: defineTable({
-		// External source IDs
 		tmdbId: v.optional(v.number()),
 		traktId: v.optional(v.number()),
 		imdbId: v.optional(v.string()),
-		// Media metadata
 		title: v.string(),
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		// Enrichment metadata
-		metadataVersion: v.optional(v.number()),
 		isAnime: v.optional(v.boolean()),
-		primaryStudioTmdbId: v.optional(v.union(v.number(), v.null())),
-		primaryStudioName: v.optional(v.union(v.string(), v.null())),
 		director: v.optional(v.union(v.string(), v.null())),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
-		// Detail snapshot fields for DB-first detail rendering
 		overview: v.optional(v.union(v.string(), v.null())),
 		status: v.optional(v.union(v.string(), v.null())),
 		runtime: v.optional(v.union(v.number(), v.null())),
@@ -139,34 +127,25 @@ export default defineSchema({
 		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
 		nextRefreshAt: v.optional(v.number()),
 		refreshErrorCount: v.optional(v.number()),
-		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
+		lastRefreshErrorAt: v.union(v.number(), v.null())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
 		.index('by_imdbId', ['imdbId'])
 		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
-	// TV Shows table - stores TV series metadata (data source hub)
-	// Supports multiple data sources (TMDB, Trakt, IMDB, etc.)
-	// A show must have at least one source ID, but can have multiple
+	// Canonical TV records (multi-source IDs + DB-first detail snapshot).
 	tvShows: defineTable({
-		// External source IDs
 		tmdbId: v.optional(v.number()),
 		traktId: v.optional(v.number()),
 		imdbId: v.optional(v.string()),
-		// Media metadata
 		title: v.string(),
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		// Enrichment metadata
-		metadataVersion: v.optional(v.number()),
 		isAnime: v.optional(v.boolean()),
-		primaryStudioTmdbId: v.optional(v.union(v.number(), v.null())),
-		primaryStudioName: v.optional(v.union(v.string(), v.null())),
 		creator: v.optional(v.union(v.string(), v.null())),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
-		// Detail snapshot fields for DB-first detail rendering
 		overview: v.optional(v.union(v.string(), v.null())),
 		status: v.optional(v.union(v.string(), v.null())),
 		numberOfSeasons: v.optional(v.union(v.number(), v.null())),
@@ -195,131 +174,100 @@ export default defineSchema({
 		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
 		nextRefreshAt: v.optional(v.number()),
 		refreshErrorCount: v.optional(v.number()),
-		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
+		lastRefreshErrorAt: v.union(v.number(), v.null())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
 		.index('by_imdbId', ['imdbId'])
 		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
-	// People table - normalized person metadata from TMDB
+	// Minimal person registry used by lazy person graph sync.
 	people: defineTable({
 		tmdbId: v.number(),
 		name: v.string(),
 		profilePath: v.union(v.string(), v.null())
-	})
-		.index('by_tmdbId', ['tmdbId'])
-		.index('by_name', ['name']),
+	}).index('by_tmdbId', ['tmdbId']),
 
-	// Companies table - normalized production company/studio metadata from TMDB
+	// Minimal company/studio registry used by lazy company graph sync.
 	companies: defineTable({
 		tmdbId: v.number(),
 		name: v.string(),
 		logoPath: v.union(v.string(), v.null())
-	})
-		.index('by_tmdbId', ['tmdbId'])
-		.index('by_name', ['name']),
+	}).index('by_tmdbId', ['tmdbId']),
 
-	// Movie credits - relationship between movies and people with role metadata
+	// Person-to-movie graph links for entity detail filtering and watched/in-library checks.
 	movieCredits: defineTable({
 		movieId: v.id('movies'),
 		personId: v.id('people'),
 		personTmdbId: v.number(),
-		role: v.string(),
-		creditId: v.string(),
+		mediaTmdbId: v.number(),
 		billingOrder: v.number(),
 		source: v.literal('tmdb')
-	})
-		.index('by_movieId', ['movieId'])
-		.index('by_personId', ['personId'])
-		.index('by_personTmdbId', ['personTmdbId'])
-		.index('by_personTmdbId_role', ['personTmdbId', 'role'])
-		.index('by_personId_role', ['personId', 'role'])
-		.index('by_movieId_role', ['movieId', 'role'])
-		.index('by_movieId_creditId', ['movieId', 'creditId']),
+	}).index('by_personTmdbId', ['personTmdbId']),
 
-	// TV credits - relationship between TV shows and people with role metadata
+	// Person-to-TV graph links for entity detail filtering and watched/in-library checks.
 	tvCredits: defineTable({
 		tvShowId: v.id('tvShows'),
 		personId: v.id('people'),
 		personTmdbId: v.number(),
-		role: v.string(),
-		creditId: v.string(),
+		mediaTmdbId: v.number(),
 		billingOrder: v.number(),
 		source: v.literal('tmdb')
-	})
-		.index('by_tvShowId', ['tvShowId'])
-		.index('by_personId', ['personId'])
-		.index('by_personTmdbId', ['personTmdbId'])
-		.index('by_personTmdbId_role', ['personTmdbId', 'role'])
-		.index('by_personId_role', ['personId', 'role'])
-		.index('by_tvShowId_role', ['tvShowId', 'role'])
-		.index('by_tvShowId_creditId', ['tvShowId', 'creditId']),
+	}).index('by_personTmdbId', ['personTmdbId']),
 
-	// Movie companies - relationship between movies and production companies
+	// Company-to-movie graph links for entity detail filtering and watched/in-library checks.
 	movieCompanies: defineTable({
 		movieId: v.id('movies'),
 		companyId: v.id('companies'),
 		companyTmdbId: v.number(),
-		role: v.string(),
+		mediaTmdbId: v.number(),
 		billingOrder: v.number(),
 		source: v.literal('tmdb')
-	})
-		.index('by_movieId', ['movieId'])
-		.index('by_companyId', ['companyId'])
-		.index('by_companyTmdbId', ['companyTmdbId'])
-		.index('by_movieId_companyId', ['movieId', 'companyId']),
+	}).index('by_companyTmdbId', ['companyTmdbId']),
 
-	// TV companies - relationship between TV shows and production companies
+	// Company-to-TV graph links for entity detail filtering and watched/in-library checks.
 	tvCompanies: defineTable({
 		tvShowId: v.id('tvShows'),
 		companyId: v.id('companies'),
 		companyTmdbId: v.number(),
-		role: v.string(),
+		mediaTmdbId: v.number(),
 		billingOrder: v.number(),
 		source: v.literal('tmdb')
-	})
-		.index('by_tvShowId', ['tvShowId'])
-		.index('by_companyId', ['companyId'])
-		.index('by_companyTmdbId', ['companyTmdbId'])
-		.index('by_tvShowId_companyId', ['tvShowId', 'companyId']),
+	}).index('by_companyTmdbId', ['companyTmdbId']),
 
-	// Movie Reviews - user ratings and reviews for movies
-	// Uses internal Convex IDs for proper normalization and multi-source support
+	// User movie reviews/ratings; primary per-user library source for movies.
 	movieReviews: defineTable({
 		userId: v.string(),
-		movieId: v.id('movies'), // Internal Convex movie ID
+		movieId: v.id('movies'),
 		rating: v.string(),
 		liked: v.boolean(),
 		watched: v.boolean(),
-		review: v.union(v.string(), v.null()), // Optional text review
+		review: v.union(v.string(), v.null()),
 		mediaType: v.literal('movie'),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
-		.index('by_userId', ['userId']) // For fetching all user's reviews
-		.index('by_movieId', ['movieId']) // For computing average ratings
-		.index('by_userId_movieId', ['userId', 'movieId']), // For fetching specific review (most common query)
+		.index('by_userId', ['userId'])
+		.index('by_movieId', ['movieId'])
+		.index('by_userId_movieId', ['userId', 'movieId']),
 
-	// TV Reviews - user ratings and reviews for TV shows
-	// Uses internal Convex IDs for proper normalization and multi-source support
+	// User TV reviews/ratings; primary per-user library source for TV.
 	tvReviews: defineTable({
 		userId: v.string(),
-		tvShowId: v.id('tvShows'), // Internal Convex TV show ID
+		tvShowId: v.id('tvShows'),
 		rating: v.string(),
 		liked: v.boolean(),
 		watched: v.boolean(),
-		review: v.union(v.string(), v.null()), // Optional text review
+		review: v.union(v.string(), v.null()),
 		mediaType: v.literal('tv'),
 		createdAt: v.number(),
 		updatedAt: v.number()
 	})
-		.index('by_userId', ['userId']) // For fetching all user's reviews
-		.index('by_tvShowId', ['tvShowId']) // For computing average ratings
-		.index('by_userId_tvShowId', ['userId', 'tvShowId']), // For fetching specific review (most common query)
+		.index('by_userId', ['userId'])
+		.index('by_tvShowId', ['tvShowId'])
+		.index('by_userId_tvShowId', ['userId', 'tvShowId']),
 
-	// User Sessions - secure server-side storage of refresh tokens
-	// Refresh tokens are never sent to the client after initial login
+	// Secure server-side WorkOS session/refresh-token state.
 	userSessions: defineTable(userSessionValidator)
 		.index('by_userId', ['userId'])
 		.index('by_sessionId', ['sessionId'])

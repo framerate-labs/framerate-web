@@ -1,8 +1,8 @@
 import type { QueryCtx, MutationCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
+import type { MediaSource } from '../types/mediaTypes';
 
-export type MediaSource = 'tmdb' | 'trakt' | 'imdb';
-export type MediaType = 'movie' | 'tv';
+export type { MediaSource, MediaType } from '../types/mediaTypes';
 
 /**
  * Looks up a movie by source and external ID.
@@ -16,21 +16,21 @@ export async function getMovieBySource(
 	ctx: QueryCtx | MutationCtx,
 	source: MediaSource,
 	externalId: number | string
-): Promise<{
-	_id: Id<'movies'>;
-	tmdbId?: number;
-	traktId?: number;
-	imdbId?: string;
-	title: string;
-	posterPath: string | null;
-	backdropPath: string | null;
-	releaseDate: string | null;
-	metadataVersion?: number;
-	isAnime?: boolean;
-	primaryStudioTmdbId?: number | null;
-	primaryStudioName?: string | null;
-	director?: string | null;
-} | null> {
+	): Promise<{
+		_id: Id<'movies'>;
+		tmdbId?: number;
+		traktId?: number;
+		imdbId?: string;
+		title: string;
+		posterPath: string | null;
+		backdropPath: string | null;
+		releaseDate: string | null;
+		isAnime?: boolean;
+		director?: string | null;
+		detailSchemaVersion?: number | null;
+		detailFetchedAt?: number | null;
+		creatorCredits?: unknown[] | null;
+	} | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
 			.query('movies')
@@ -62,21 +62,21 @@ export async function getTVShowBySource(
 	ctx: QueryCtx | MutationCtx,
 	source: MediaSource,
 	externalId: number | string
-): Promise<{
-	_id: Id<'tvShows'>;
-	tmdbId?: number;
-	traktId?: number;
-	imdbId?: string;
-	title: string;
-	posterPath: string | null;
-	backdropPath: string | null;
-	releaseDate: string | null;
-	metadataVersion?: number;
-	isAnime?: boolean;
-	primaryStudioTmdbId?: number | null;
-	primaryStudioName?: string | null;
-	creator?: string | null;
-} | null> {
+	): Promise<{
+		_id: Id<'tvShows'>;
+		tmdbId?: number;
+		traktId?: number;
+		imdbId?: string;
+		title: string;
+		posterPath: string | null;
+		backdropPath: string | null;
+		releaseDate: string | null;
+		isAnime?: boolean;
+		creator?: string | null;
+		detailSchemaVersion?: number | null;
+		detailFetchedAt?: number | null;
+		creatorCredits?: unknown[] | null;
+	} | null> {
 	if (source === 'tmdb') {
 		return await ctx.db
 			.query('tvShows')
@@ -94,21 +94,4 @@ export async function getTVShowBySource(
 			.unique();
 	}
 	return null;
-}
-
-/**
- * Gets the external ID from a media document based on source.
- *
- * @param media - Movie or TV show document
- * @param source - Data source to extract ID for
- * @returns External ID or undefined if not set
- */
-export function getExternalId(
-	media: { tmdbId?: number; traktId?: number; imdbId?: string },
-	source: MediaSource
-): number | string | undefined {
-	if (source === 'tmdb') return media.tmdbId;
-	if (source === 'trakt') return media.traktId;
-	if (source === 'imdb') return media.imdbId;
-	return undefined;
 }

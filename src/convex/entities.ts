@@ -1,14 +1,31 @@
 import { v } from 'convex/values';
 
-import type { Id } from './_generated/dataModel';
+import type { ActionCtx, MutationCtx } from './_generated/server';
 import { internal } from './_generated/api';
 import { action, internalMutation, internalQuery } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import type {
+	AnnotatedWork,
+	DesiredMovieLink,
+	DesiredTVLink,
+	ManagedLinkRowId,
+	PersonMediaReference,
+	ResolvedMovieReference,
+	ResolvedTVReference,
+	TMDBCompanyDetailsResponse,
+	TMDBDiscoverResponse,
+	TMDBPersonCredit,
+	TMDBPersonDetailsResponse,
+	WorkLibraryState,
+	WorkMediaType,
+	WorkRow,
+	WorksQueryContext
+} from './types/entitiesTypes';
+import { fetchTMDBJson } from './utils/tmdb';
 
-const TMDB_API_BASE = 'https://api.themoviedb.org/3';
 const COMPANY_GRAPH_MAX_DISCOVER_PAGES = 8;
-const PERSON_LINK_ROLE = 'contributor';
 const PERSON_LINK_SOURCE = 'tmdb' as const;
-const PERSON_LINK_CREDIT_PREFIX = 'person-link';
+const COMPANY_LINK_SOURCE = 'tmdb' as const;
 
 const worksMediaFilterValidator = v.union(v.literal('all'), v.literal('movie'), v.literal('tv'));
 const personRoleFilterValidator = v.union(
@@ -25,86 +42,6 @@ const workReferenceValidator = v.object({
 	billingOrder: v.number()
 });
 
-type WorkMediaType = 'movie' | 'tv';
-
-type WorkRow = {
-	mediaType: WorkMediaType;
-	tmdbId: number;
-	title: string;
-	posterPath: string | null;
-	releaseDate: string | null;
-	role: string | null;
-	billingOrder: number | null;
-};
-
-type AnnotatedWork = {
-	mediaType: WorkMediaType;
-	tmdbId: number;
-	title: string;
-	posterPath: string | null;
-	releaseDate: string | null;
-	role: string | null;
-	inLibrary: boolean;
-	watched: boolean;
-};
-
-type PersonMediaReference = {
-	mediaType: WorkMediaType;
-	tmdbId: number;
-	billingOrder: number;
-};
-
-type WorkLibraryState = {
-	mediaType: WorkMediaType;
-	tmdbId: number;
-	inLibrary: boolean;
-	watched: boolean;
-};
-
-type TMDBPersonCredit = {
-	id: number;
-	media_type: 'movie' | 'tv' | 'person';
-	department?: string | null;
-	job?: string | null;
-	credit_id?: string;
-	order?: number;
-	title?: string;
-	name?: string;
-	poster_path?: string | null;
-	release_date?: string | null;
-	first_air_date?: string | null;
-};
-
-type TMDBPersonDetailsResponse = {
-	id: number;
-	name: string;
-	profile_path: string | null;
-	biography?: string | null;
-	combined_credits?: {
-		cast?: TMDBPersonCredit[];
-		crew?: TMDBPersonCredit[];
-	};
-};
-
-type TMDBCompanyDetailsResponse = {
-	id: number;
-	name: string;
-	logo_path: string | null;
-	description?: string | null;
-};
-
-type TMDBDiscoverResponse = {
-	page?: number;
-	total_pages?: number;
-	results?: Array<{
-		id?: number;
-		title?: string;
-		name?: string;
-		poster_path?: string | null;
-		release_date?: string | null;
-		first_air_date?: string | null;
-	}>;
-};
 
 function parseDateToEpoch(dateString: string | null): number {
 	if (!dateString) return 0;
@@ -144,25 +81,6 @@ function mediaReferenceKey(mediaType: WorkMediaType, tmdbId: number): string {
 	return `${mediaType}:${tmdbId}`;
 }
 
-function personLinkCreditId(personTmdbId: number, mediaType: WorkMediaType, mediaTmdbId: number): string {
-	return `${PERSON_LINK_CREDIT_PREFIX}:${personTmdbId}:${mediaType}:${mediaTmdbId}`;
-}
-
-function parsePersonLinkMediaTmdbId(
-	creditId: string,
-	personTmdbId: number,
-	mediaType: WorkMediaType
-): number | null {
-	const parts = creditId.split(':');
-	if (parts.length !== 4) return null;
-	const [prefix, personIdPart, mediaTypePart, mediaTmdbIdPart] = parts;
-	if (prefix !== PERSON_LINK_CREDIT_PREFIX) return null;
-	if (personIdPart !== String(personTmdbId)) return null;
-	if (mediaTypePart !== mediaType) return null;
-	const mediaTmdbId = Number(mediaTmdbIdPart);
-	return Number.isFinite(mediaTmdbId) ? mediaTmdbId : null;
-}
-
 function dedupePersonMediaReferences(references: PersonMediaReference[]): PersonMediaReference[] {
 	const deduped = new Map<string, PersonMediaReference>();
 	for (const reference of references) {
@@ -173,6 +91,278 @@ function dedupePersonMediaReferences(references: PersonMediaReference[]): Person
 		}
 	}
 	return Array.from(deduped.values());
+}
+
+async function resolveExistingMediaReferences(
+	ctx: MutationCtx,
+	references: PersonMediaReference[]
+): Promise<{ movies: ResolvedMovieReference[]; tvShows: ResolvedTVReference[] }> {
+	const movies: ResolvedMovieReference[] = [];
+	const tvShows: ResolvedTVReference[] = [];
+
+	for (const reference of references) {
+		if (reference.mediaType === 'movie') {
+			const movie = await ctx.db
+				.query('movies')
+				.withIndex('by_tmdbId', (q) => q.eq('tmdbId', reference.tmdbId))
+				.unique();
+			if (!movie) continue;
+			movies.push({
+				tmdbId: reference.tmdbId,
+				billingOrder: reference.billingOrder,
+				movieId: movie._id
+			});
+			continue;
+		}
+
+		const tvShow = await ctx.db
+			.query('tvShows')
+			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', reference.tmdbId))
+			.unique();
+		if (!tvShow) continue;
+		tvShows.push({
+			tmdbId: reference.tmdbId,
+			billingOrder: reference.billingOrder,
+			tvShowId: tvShow._id
+		});
+	}
+
+	return { movies, tvShows };
+}
+
+function toDesiredMovieLinks(
+	references: ResolvedMovieReference[]
+): DesiredMovieLink[] {
+	return references.map((reference) => ({
+		mediaTmdbId: reference.tmdbId,
+		movieId: reference.movieId,
+		billingOrder: reference.billingOrder
+	}));
+}
+
+function toDesiredTVLinks(
+	references: ResolvedTVReference[]
+): DesiredTVLink[] {
+	return references.map((reference) => ({
+		mediaTmdbId: reference.tmdbId,
+		tvShowId: reference.tvShowId,
+		billingOrder: reference.billingOrder
+	}));
+}
+
+function toWorkReferences(works: WorkRow[]): PersonMediaReference[] {
+	return works.map((work, index) => ({
+		mediaType: work.mediaType,
+		tmdbId: work.tmdbId,
+		billingOrder: work.billingOrder ?? index
+	}));
+}
+
+function clampWorksLimit(limit: number | undefined): number {
+	return Math.max(1, Math.min(limit ?? 100, 250));
+}
+
+async function syncManagedLinks<TExistingRow extends { _id: ManagedLinkRowId }, TDesiredRow>(params: {
+	ctx: MutationCtx;
+	existingRows: TExistingRow[];
+	desiredRows: TDesiredRow[];
+	getExistingKey: (row: TExistingRow) => string;
+	getDesiredKey: (row: TDesiredRow) => string;
+	isManagedRow: (row: TExistingRow) => boolean;
+	insertDesiredRow: (row: TDesiredRow) => Promise<void>;
+	patchExistingRow: (existing: TExistingRow, desired: TDesiredRow) => Promise<void>;
+}): Promise<void> {
+	const managedByKey = new Map<string, TExistingRow>();
+	const duplicateIds: ManagedLinkRowId[] = [];
+
+	for (const existing of params.existingRows) {
+		if (!params.isManagedRow(existing)) continue;
+		const key = params.getExistingKey(existing);
+		if (managedByKey.has(key)) {
+			duplicateIds.push(existing._id);
+			continue;
+		}
+		managedByKey.set(key, existing);
+	}
+
+	const desiredKeys = new Set<string>();
+	for (const desired of params.desiredRows) {
+		const key = params.getDesiredKey(desired);
+		desiredKeys.add(key);
+		const existing = managedByKey.get(key);
+		if (!existing) {
+			await params.insertDesiredRow(desired);
+			continue;
+		}
+		await params.patchExistingRow(existing, desired);
+	}
+
+	for (const [key, existing] of managedByKey) {
+		if (desiredKeys.has(key)) continue;
+		await params.ctx.db.delete(existing._id);
+	}
+
+	for (const duplicateId of duplicateIds) {
+		await params.ctx.db.delete(duplicateId);
+	}
+}
+
+async function syncManagedMovieLinks<
+	TExisting extends {
+		_id: ManagedLinkRowId;
+		movieId: Id<'movies'>;
+		mediaTmdbId: number;
+		billingOrder: number;
+		source: 'tmdb';
+	}
+>(params: {
+	ctx: MutationCtx;
+	existingRows: TExisting[];
+	desiredRows: DesiredMovieLink[];
+	isManagedRow: (row: TExisting) => boolean;
+	insertDesiredRow: (row: DesiredMovieLink) => Promise<void>;
+	buildEntityPatch: (existing: TExisting) => {
+		personId?: Id<'people'>;
+		personTmdbId?: number;
+		companyId?: Id<'companies'>;
+		companyTmdbId?: number;
+	};
+}): Promise<void> {
+	await syncManagedLinks({
+		ctx: params.ctx,
+		existingRows: params.existingRows,
+		desiredRows: params.desiredRows,
+		getExistingKey: (row) => String(row.mediaTmdbId),
+		getDesiredKey: (row) => String(row.mediaTmdbId),
+		isManagedRow: params.isManagedRow,
+		insertDesiredRow: params.insertDesiredRow,
+		patchExistingRow: async (existing, desired) => {
+			const patch: {
+				movieId?: Id<'movies'>;
+				mediaTmdbId?: number;
+				billingOrder?: number;
+				source?: 'tmdb';
+				personId?: Id<'people'>;
+				personTmdbId?: number;
+				companyId?: Id<'companies'>;
+				companyTmdbId?: number;
+			} = params.buildEntityPatch(existing);
+
+			if (existing.movieId !== desired.movieId) patch.movieId = desired.movieId;
+			if (existing.mediaTmdbId !== desired.mediaTmdbId) patch.mediaTmdbId = desired.mediaTmdbId;
+			if (existing.billingOrder !== desired.billingOrder) patch.billingOrder = desired.billingOrder;
+			if (existing.source !== 'tmdb') patch.source = 'tmdb';
+
+			if (Object.keys(patch).length > 0) {
+				await params.ctx.db.patch(existing._id, patch);
+			}
+		}
+	});
+}
+
+async function syncManagedTVLinks<
+	TExisting extends {
+		_id: ManagedLinkRowId;
+		tvShowId: Id<'tvShows'>;
+		mediaTmdbId: number;
+		billingOrder: number;
+		source: 'tmdb';
+	}
+>(params: {
+	ctx: MutationCtx;
+	existingRows: TExisting[];
+	desiredRows: DesiredTVLink[];
+	isManagedRow: (row: TExisting) => boolean;
+	insertDesiredRow: (row: DesiredTVLink) => Promise<void>;
+	buildEntityPatch: (existing: TExisting) => {
+		personId?: Id<'people'>;
+		personTmdbId?: number;
+		companyId?: Id<'companies'>;
+		companyTmdbId?: number;
+	};
+}): Promise<void> {
+	await syncManagedLinks({
+		ctx: params.ctx,
+		existingRows: params.existingRows,
+		desiredRows: params.desiredRows,
+		getExistingKey: (row) => String(row.mediaTmdbId),
+		getDesiredKey: (row) => String(row.mediaTmdbId),
+		isManagedRow: params.isManagedRow,
+		insertDesiredRow: params.insertDesiredRow,
+		patchExistingRow: async (existing, desired) => {
+			const patch: {
+				tvShowId?: Id<'tvShows'>;
+				mediaTmdbId?: number;
+				billingOrder?: number;
+				source?: 'tmdb';
+				personId?: Id<'people'>;
+				personTmdbId?: number;
+				companyId?: Id<'companies'>;
+				companyTmdbId?: number;
+			} = params.buildEntityPatch(existing);
+
+			if (existing.tvShowId !== desired.tvShowId) patch.tvShowId = desired.tvShowId;
+			if (existing.mediaTmdbId !== desired.mediaTmdbId) patch.mediaTmdbId = desired.mediaTmdbId;
+			if (existing.billingOrder !== desired.billingOrder) patch.billingOrder = desired.billingOrder;
+			if (existing.source !== 'tmdb') patch.source = 'tmdb';
+
+			if (Object.keys(patch).length > 0) {
+				await params.ctx.db.patch(existing._id, patch);
+			}
+		}
+	});
+}
+
+async function upsertPersonRecord(
+	ctx: MutationCtx,
+	input: { tmdbId: number; name: string; profilePath: string | null }
+): Promise<Id<'people'>> {
+	const existing = await ctx.db
+		.query('people')
+		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', input.tmdbId))
+		.unique();
+
+	if (!existing) {
+		return await ctx.db.insert('people', {
+			tmdbId: input.tmdbId,
+			name: input.name,
+			profilePath: input.profilePath
+		});
+	}
+
+	const patch: { name?: string; profilePath?: string | null } = {};
+	if (existing.name !== input.name) patch.name = input.name;
+	if (existing.profilePath !== input.profilePath) patch.profilePath = input.profilePath;
+	if (Object.keys(patch).length > 0) {
+		await ctx.db.patch(existing._id, patch);
+	}
+	return existing._id;
+}
+
+async function upsertCompanyRecord(
+	ctx: MutationCtx,
+	input: { tmdbId: number; name: string; logoPath: string | null }
+): Promise<Id<'companies'>> {
+	const existing = await ctx.db
+		.query('companies')
+		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', input.tmdbId))
+		.unique();
+
+	if (!existing) {
+		return await ctx.db.insert('companies', {
+			tmdbId: input.tmdbId,
+			name: input.name,
+			logoPath: input.logoPath
+		});
+	}
+
+	const patch: { name?: string; logoPath?: string | null } = {};
+	if (existing.name !== input.name) patch.name = input.name;
+	if (existing.logoPath !== input.logoPath) patch.logoPath = input.logoPath;
+	if (Object.keys(patch).length > 0) {
+		await ctx.db.patch(existing._id, patch);
+	}
+	return existing._id;
 }
 
 function buildPersonMediaReferences(payload: TMDBPersonDetailsResponse): PersonMediaReference[] {
@@ -245,6 +435,31 @@ function applyWorksFilters(
 		filtered = filtered.filter((work) => !work.watched);
 	}
 	return filtered;
+}
+
+async function annotateAndFilterWorks(
+	ctx: ActionCtx,
+	params: {
+		userId: string | null;
+		works: WorkRow[];
+		mediaFilter: 'all' | 'movie' | 'tv';
+		inLibraryOnly: boolean;
+		unwatchedOnly: boolean;
+		queryContext: WorksQueryContext;
+	}
+): Promise<AnnotatedWork[]> {
+	const references = toWorkReferences(params.works);
+	const libraryStates = (await ctx.runQuery(internal.entities.resolveWorksLibraryState, {
+		userId: params.userId,
+		...params.queryContext,
+		works: references
+	})) as WorkLibraryState[];
+	const annotated = annotateWorksWithLibraryState(params.works, libraryStates);
+	return applyWorksFilters(annotated, {
+		mediaFilter: params.mediaFilter,
+		inLibraryOnly: params.inLibraryOnly,
+		unwatchedOnly: params.unwatchedOnly
+	});
 }
 
 function normalizeLower(value: string | null | undefined): string {
@@ -364,49 +579,17 @@ function buildPersonWorksFromTMDB(
 }
 
 async function fetchPersonFromTMDB(tmdbPersonId: number): Promise<TMDBPersonDetailsResponse> {
-	const apiToken = process.env.TMDB_API_TOKEN;
-	if (!apiToken) {
-		throw new Error('Server misconfiguration: missing TMDB_API_TOKEN');
-	}
-
-	const response = await fetch(
-		`${TMDB_API_BASE}/person/${tmdbPersonId}?append_to_response=combined_credits&language=en-US`,
-		{
-			method: 'GET',
-			headers: {
-				accept: 'application/json',
-				Authorization: `Bearer ${apiToken}`
-			}
+	const payload = (await fetchTMDBJson(`/person/${tmdbPersonId}`, {
+		params: {
+			append_to_response: 'combined_credits',
+			language: 'en-US'
 		}
-	);
-
-	if (!response.ok) {
-		let message = `TMDB API Error: ${response.status} ${response.statusText}`;
-		try {
-			const body = (await response.json()) as { status_message?: string; status_code?: number };
-			if (body.status_message) {
-				message = `TMDB API Error: ${body.status_code ?? response.status} – ${body.status_message}`;
-			}
-		} catch {
-			// Keep fallback message.
-		}
-		throw new Error(message);
-	}
-
-	const payload = (await response.json()) as TMDBPersonDetailsResponse;
+	})) as TMDBPersonDetailsResponse;
 	if (!payload || typeof payload.id !== 'number' || typeof payload.name !== 'string') {
 		throw new Error('Invalid response structure from TMDB person API');
 	}
 
 	return payload;
-}
-
-function parseTMDBErrorPayload(value: unknown): string | null {
-	if (!value || typeof value !== 'object') return null;
-	const statusMessage = (value as { status_message?: unknown }).status_message;
-	const statusCode = (value as { status_code?: unknown }).status_code;
-	if (typeof statusMessage !== 'string' || statusMessage.trim() === '') return null;
-	return `TMDB API Error: ${typeof statusCode === 'number' ? statusCode : 'unknown'} – ${statusMessage}`;
 }
 
 function parseTMDBDiscoverResponse(
@@ -464,11 +647,6 @@ async function fetchCompanyWorksFromTMDB(
 	mediaType: WorkMediaType,
 	maxPages: number = COMPANY_GRAPH_MAX_DISCOVER_PAGES
 ): Promise<WorkRow[]> {
-	const apiToken = process.env.TMDB_API_TOKEN;
-	if (!apiToken) {
-		throw new Error('Server misconfiguration: missing TMDB_API_TOKEN');
-	}
-
 	const endpoint = mediaType === 'movie' ? 'movie' : 'tv';
 	const rows: WorkRow[] = [];
 	let page = 1;
@@ -476,29 +654,16 @@ async function fetchCompanyWorksFromTMDB(
 	const safeMaxPages = Math.max(1, maxPages);
 
 	while (page <= totalPages && page <= safeMaxPages) {
-		const url = `${TMDB_API_BASE}/discover/${endpoint}?language=en-US&with_companies=${tmdbCompanyId}&sort_by=popularity.desc&page=${page}`;
-		const response = await fetch(url, {
-			method: 'GET',
-			headers: {
-				accept: 'application/json',
-				Authorization: `Bearer ${apiToken}`
-			}
-		});
-
-		if (!response.ok) {
-			let message = `TMDB API Error: ${response.status} ${response.statusText}`;
-			try {
-				const parsed = parseTMDBErrorPayload(await response.json());
-				if (parsed) {
-					message = parsed;
+		const parsed = parseTMDBDiscoverResponse(
+			await fetchTMDBJson(`/discover/${endpoint}`, {
+				params: {
+					language: 'en-US',
+					with_companies: tmdbCompanyId,
+					sort_by: 'popularity.desc',
+					page
 				}
-			} catch {
-				// Keep fallback message.
-			}
-			throw new Error(message);
-		}
-
-		const parsed = parseTMDBDiscoverResponse(await response.json());
+			})
+		);
 		totalPages = Math.min(safeMaxPages, parsed.totalPages);
 		for (let index = 0; index < parsed.items.length; index += 1) {
 			const item = parsed.items[index];
@@ -520,33 +685,7 @@ async function fetchCompanyWorksFromTMDB(
 }
 
 async function fetchCompanyFromTMDB(tmdbCompanyId: number): Promise<TMDBCompanyDetailsResponse> {
-	const apiToken = process.env.TMDB_API_TOKEN;
-	if (!apiToken) {
-		throw new Error('Server misconfiguration: missing TMDB_API_TOKEN');
-	}
-
-	const response = await fetch(`${TMDB_API_BASE}/company/${tmdbCompanyId}`, {
-		method: 'GET',
-		headers: {
-			accept: 'application/json',
-			Authorization: `Bearer ${apiToken}`
-		}
-	});
-
-	if (!response.ok) {
-		let message = `TMDB API Error: ${response.status} ${response.statusText}`;
-		try {
-			const body = (await response.json()) as { status_message?: string; status_code?: number };
-			if (body.status_message) {
-				message = `TMDB API Error: ${body.status_code ?? response.status} – ${body.status_message}`;
-			}
-		} catch {
-			// Keep fallback message.
-		}
-		throw new Error(message);
-	}
-
-	const payload = (await response.json()) as TMDBCompanyDetailsResponse;
+	const payload = (await fetchTMDBJson(`/company/${tmdbCompanyId}`)) as TMDBCompanyDetailsResponse;
 	if (!payload || typeof payload.id !== 'number' || typeof payload.name !== 'string') {
 		throw new Error('Invalid response structure from TMDB company API');
 	}
@@ -557,6 +696,7 @@ export const resolveWorksLibraryState = internalQuery({
 	args: {
 		userId: v.union(v.string(), v.null()),
 		personTmdbId: v.optional(v.number()),
+		companyTmdbId: v.optional(v.number()),
 		works: v.array(workReferenceValidator)
 	},
 	handler: async (ctx, args): Promise<WorkLibraryState[]> => {
@@ -564,6 +704,7 @@ export const resolveWorksLibraryState = internalQuery({
 		const states: WorkLibraryState[] = [];
 		const userId = args.userId;
 		const personTmdbId = args.personTmdbId ?? null;
+		const companyTmdbId = args.companyTmdbId ?? null;
 
 		const linkedMovieIdByTmdbId = new Map<number, Id<'movies'>>();
 		const linkedTVIdByTmdbId = new Map<number, Id<'tvShows'>>();
@@ -581,29 +722,65 @@ export const resolveWorksLibraryState = internalQuery({
 		if (personTmdbId !== null) {
 			const movieCredits = await ctx.db
 				.query('movieCredits')
-				.withIndex('by_personTmdbId_role', (q) => q.eq('personTmdbId', personTmdbId).eq('role', PERSON_LINK_ROLE))
+				.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
 				.collect();
 			for (const credit of movieCredits) {
 				if (credit.source !== PERSON_LINK_SOURCE) continue;
-				const mediaTmdbId = parsePersonLinkMediaTmdbId(credit.creditId, personTmdbId, 'movie');
-				if (mediaTmdbId === null) continue;
+				const mediaTmdbId =
+					typeof credit.mediaTmdbId === 'number'
+						? credit.mediaTmdbId
+						: (await ctx.db.get(credit.movieId))?.tmdbId;
+				if (typeof mediaTmdbId !== 'number') continue;
 				if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
 				linkedMovieIdByTmdbId.set(mediaTmdbId, credit.movieId);
 			}
 
 			const tvCredits = await ctx.db
 				.query('tvCredits')
-				.withIndex('by_personTmdbId_role', (q) => q.eq('personTmdbId', personTmdbId).eq('role', PERSON_LINK_ROLE))
+				.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
 				.collect();
 			for (const credit of tvCredits) {
 				if (credit.source !== PERSON_LINK_SOURCE) continue;
-				const mediaTmdbId = parsePersonLinkMediaTmdbId(credit.creditId, personTmdbId, 'tv');
-				if (mediaTmdbId === null) continue;
+				const mediaTmdbId =
+					typeof credit.mediaTmdbId === 'number'
+						? credit.mediaTmdbId
+						: (await ctx.db.get(credit.tvShowId))?.tmdbId;
+				if (typeof mediaTmdbId !== 'number') continue;
 				if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
 				linkedTVIdByTmdbId.set(mediaTmdbId, credit.tvShowId);
 			}
+		} else if (companyTmdbId !== null) {
+			const movieCompanyLinks = await ctx.db
+				.query('movieCompanies')
+				.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
+				.collect();
+			for (const link of movieCompanyLinks) {
+				if (link.source !== COMPANY_LINK_SOURCE) continue;
+				const mediaTmdbId =
+					typeof link.mediaTmdbId === 'number'
+						? link.mediaTmdbId
+						: (await ctx.db.get(link.movieId))?.tmdbId;
+				if (typeof mediaTmdbId !== 'number') continue;
+				if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
+				linkedMovieIdByTmdbId.set(mediaTmdbId, link.movieId);
+			}
+
+			const tvCompanyLinks = await ctx.db
+				.query('tvCompanies')
+				.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
+				.collect();
+			for (const link of tvCompanyLinks) {
+				if (link.source !== COMPANY_LINK_SOURCE) continue;
+				const mediaTmdbId =
+					typeof link.mediaTmdbId === 'number'
+						? link.mediaTmdbId
+						: (await ctx.db.get(link.tvShowId))?.tmdbId;
+				if (typeof mediaTmdbId !== 'number') continue;
+				if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
+				linkedTVIdByTmdbId.set(mediaTmdbId, link.tvShowId);
+			}
 		} else {
-			// Fallback path when link context is not available (e.g. company page).
+			// Fallback path when link context is not available.
 			for (const movieTmdbId of movieTmdbIdsToCheck) {
 				const movie = await ctx.db
 					.query('movies')
@@ -680,163 +857,144 @@ export const syncPersonFromTMDB = internalMutation({
 	},
 	handler: async (ctx, args) => {
 		const dedupedReferences = dedupePersonMediaReferences(args.references as PersonMediaReference[]);
-
-		const existingPerson = await ctx.db
-			.query('people')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbPersonId))
-			.unique();
-
-		let personId: Id<'people'>;
-		if (!existingPerson) {
-			personId = await ctx.db.insert('people', {
-				tmdbId: args.tmdbPersonId,
-				name: args.name,
-				profilePath: args.profilePath
-			});
-		} else {
-			personId = existingPerson._id;
-			const patch: { name?: string; profilePath?: string | null } = {};
-			if (existingPerson.name !== args.name) {
-				patch.name = args.name;
-			}
-			if (existingPerson.profilePath !== args.profilePath) {
-				patch.profilePath = args.profilePath;
-			}
-			if (Object.keys(patch).length > 0) {
-				await ctx.db.patch(existingPerson._id, patch);
-			}
-		}
+		const personId = await upsertPersonRecord(ctx, {
+			tmdbId: args.tmdbPersonId,
+			name: args.name,
+			profilePath: args.profilePath
+		});
+		const resolvedReferences = await resolveExistingMediaReferences(ctx, dedupedReferences);
+		const desiredMovieCredits = toDesiredMovieLinks(resolvedReferences.movies);
+		const desiredTVCredits = toDesiredTVLinks(resolvedReferences.tvShows);
 
 		const existingMovieCredits = await ctx.db
 			.query('movieCredits')
-			.withIndex('by_personTmdbId_role', (q) =>
-				q.eq('personTmdbId', args.tmdbPersonId).eq('role', PERSON_LINK_ROLE)
-			)
+			.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', args.tmdbPersonId))
 			.collect();
 		const existingTVCredits = await ctx.db
 			.query('tvCredits')
-			.withIndex('by_personTmdbId_role', (q) =>
-				q.eq('personTmdbId', args.tmdbPersonId).eq('role', PERSON_LINK_ROLE)
-			)
+			.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', args.tmdbPersonId))
 			.collect();
 
-		const existingMovieByCreditId = new Map(existingMovieCredits.map((credit) => [credit.creditId, credit]));
-		const existingTVByCreditId = new Map(existingTVCredits.map((credit) => [credit.creditId, credit]));
-		const desiredMovieCreditIds = new Set<string>();
-		const desiredTVCreditIds = new Set<string>();
-
-		for (const reference of dedupedReferences) {
-			if (reference.mediaType === 'movie') {
-				const movie = await ctx.db
-					.query('movies')
-					.withIndex('by_tmdbId', (q) => q.eq('tmdbId', reference.tmdbId))
-					.unique();
-				if (!movie) continue;
-
-				const creditId = personLinkCreditId(args.tmdbPersonId, 'movie', reference.tmdbId);
-				desiredMovieCreditIds.add(creditId);
-				const existingCredit = existingMovieByCreditId.get(creditId);
-
-				if (!existingCredit) {
-					await ctx.db.insert('movieCredits', {
-						movieId: movie._id,
-						personId,
-						personTmdbId: args.tmdbPersonId,
-						role: PERSON_LINK_ROLE,
-						creditId,
-						billingOrder: reference.billingOrder,
-						source: PERSON_LINK_SOURCE
-					});
-					continue;
-				}
-
-			const patch: {
-				movieId?: Id<'movies'>;
-				personId?: Id<'people'>;
-					personTmdbId?: number;
-					role?: string;
-					billingOrder?: number;
-					source?: 'tmdb';
-				} = {};
-
-				if (existingCredit.movieId !== movie._id) patch.movieId = movie._id;
-				if (existingCredit.personId !== personId) patch.personId = personId;
-				if (existingCredit.personTmdbId !== args.tmdbPersonId) patch.personTmdbId = args.tmdbPersonId;
-				if (existingCredit.role !== PERSON_LINK_ROLE) patch.role = PERSON_LINK_ROLE;
-				if (existingCredit.billingOrder !== reference.billingOrder) patch.billingOrder = reference.billingOrder;
-				if (existingCredit.source !== PERSON_LINK_SOURCE) patch.source = PERSON_LINK_SOURCE;
-
-				if (Object.keys(patch).length > 0) {
-					await ctx.db.patch(existingCredit._id, patch);
-				}
-				continue;
-			}
-
-			const tvShow = await ctx.db
-				.query('tvShows')
-				.withIndex('by_tmdbId', (q) => q.eq('tmdbId', reference.tmdbId))
-				.unique();
-			if (!tvShow) continue;
-
-			const creditId = personLinkCreditId(args.tmdbPersonId, 'tv', reference.tmdbId);
-			desiredTVCreditIds.add(creditId);
-			const existingCredit = existingTVByCreditId.get(creditId);
-
-			if (!existingCredit) {
-				await ctx.db.insert('tvCredits', {
-					tvShowId: tvShow._id,
+		await syncManagedMovieLinks({
+			ctx,
+			existingRows: existingMovieCredits,
+			desiredRows: desiredMovieCredits,
+			isManagedRow: (row) => row.source === PERSON_LINK_SOURCE,
+			insertDesiredRow: async (row) => {
+				await ctx.db.insert('movieCredits', {
+					movieId: row.movieId,
 					personId,
 					personTmdbId: args.tmdbPersonId,
-					role: PERSON_LINK_ROLE,
-					creditId,
-					billingOrder: reference.billingOrder,
+					mediaTmdbId: row.mediaTmdbId,
+					billingOrder: row.billingOrder,
 					source: PERSON_LINK_SOURCE
 				});
-				continue;
-			}
+			},
+			buildEntityPatch: (existing) => ({
+				...(existing.personId !== personId ? { personId } : {}),
+				...(existing.personTmdbId !== args.tmdbPersonId
+					? { personTmdbId: args.tmdbPersonId }
+					: {})
+			})
+		});
 
-			const patch: {
-				tvShowId?: Id<'tvShows'>;
-				personId?: Id<'people'>;
-				personTmdbId?: number;
-				role?: string;
-				billingOrder?: number;
-				source?: 'tmdb';
-			} = {};
+		await syncManagedTVLinks({
+			ctx,
+			existingRows: existingTVCredits,
+			desiredRows: desiredTVCredits,
+			isManagedRow: (row) => row.source === PERSON_LINK_SOURCE,
+			insertDesiredRow: async (row) => {
+				await ctx.db.insert('tvCredits', {
+					tvShowId: row.tvShowId,
+					personId,
+					personTmdbId: args.tmdbPersonId,
+					mediaTmdbId: row.mediaTmdbId,
+					billingOrder: row.billingOrder,
+					source: PERSON_LINK_SOURCE
+				});
+			},
+			buildEntityPatch: (existing) => ({
+				...(existing.personId !== personId ? { personId } : {}),
+				...(existing.personTmdbId !== args.tmdbPersonId
+					? { personTmdbId: args.tmdbPersonId }
+					: {})
+			})
+		});
+	}
+});
 
-			if (existingCredit.tvShowId !== tvShow._id) patch.tvShowId = tvShow._id;
-			if (existingCredit.personId !== personId) patch.personId = personId;
-			if (existingCredit.personTmdbId !== args.tmdbPersonId) patch.personTmdbId = args.tmdbPersonId;
-			if (existingCredit.role !== PERSON_LINK_ROLE) patch.role = PERSON_LINK_ROLE;
-			if (existingCredit.billingOrder !== reference.billingOrder) patch.billingOrder = reference.billingOrder;
-			if (existingCredit.source !== PERSON_LINK_SOURCE) patch.source = PERSON_LINK_SOURCE;
+export const syncCompanyFromTMDB = internalMutation({
+	args: {
+		tmdbCompanyId: v.number(),
+		name: v.string(),
+		logoPath: v.union(v.string(), v.null()),
+		references: v.array(workReferenceValidator)
+	},
+	handler: async (ctx, args) => {
+		const dedupedReferences = dedupePersonMediaReferences(args.references as PersonMediaReference[]);
+		const companyId = await upsertCompanyRecord(ctx, {
+			tmdbId: args.tmdbCompanyId,
+			name: args.name,
+			logoPath: args.logoPath
+		});
+		const resolvedReferences = await resolveExistingMediaReferences(ctx, dedupedReferences);
+		const desiredMovieLinks = toDesiredMovieLinks(resolvedReferences.movies);
+		const desiredTVLinks = toDesiredTVLinks(resolvedReferences.tvShows);
 
-			if (Object.keys(patch).length > 0) {
-				await ctx.db.patch(existingCredit._id, patch);
-			}
-		}
+		const existingMovieLinks = await ctx.db
+			.query('movieCompanies')
+			.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', args.tmdbCompanyId))
+			.collect();
+		const existingTVLinks = await ctx.db
+			.query('tvCompanies')
+			.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', args.tmdbCompanyId))
+			.collect();
 
-		for (const existingCredit of existingMovieCredits) {
-			const isManaged =
-				existingCredit.source === PERSON_LINK_SOURCE &&
-				existingCredit.role === PERSON_LINK_ROLE &&
-				existingCredit.creditId.startsWith(`${PERSON_LINK_CREDIT_PREFIX}:`);
-			if (!isManaged) continue;
-			if (!desiredMovieCreditIds.has(existingCredit.creditId)) {
-				await ctx.db.delete(existingCredit._id);
-			}
-		}
+		await syncManagedMovieLinks({
+			ctx,
+			existingRows: existingMovieLinks,
+			desiredRows: desiredMovieLinks,
+			isManagedRow: (row) => row.source === COMPANY_LINK_SOURCE,
+			insertDesiredRow: async (row) => {
+				await ctx.db.insert('movieCompanies', {
+					movieId: row.movieId,
+					companyId,
+					companyTmdbId: args.tmdbCompanyId,
+					mediaTmdbId: row.mediaTmdbId,
+					billingOrder: row.billingOrder,
+					source: COMPANY_LINK_SOURCE
+				});
+			},
+			buildEntityPatch: (existing) => ({
+				...(existing.companyId !== companyId ? { companyId } : {}),
+				...(existing.companyTmdbId !== args.tmdbCompanyId
+					? { companyTmdbId: args.tmdbCompanyId }
+					: {})
+			})
+		});
 
-		for (const existingCredit of existingTVCredits) {
-			const isManaged =
-				existingCredit.source === PERSON_LINK_SOURCE &&
-				existingCredit.role === PERSON_LINK_ROLE &&
-				existingCredit.creditId.startsWith(`${PERSON_LINK_CREDIT_PREFIX}:`);
-			if (!isManaged) continue;
-			if (!desiredTVCreditIds.has(existingCredit.creditId)) {
-				await ctx.db.delete(existingCredit._id);
-			}
-		}
+		await syncManagedTVLinks({
+			ctx,
+			existingRows: existingTVLinks,
+			desiredRows: desiredTVLinks,
+			isManagedRow: (row) => row.source === COMPANY_LINK_SOURCE,
+			insertDesiredRow: async (row) => {
+				await ctx.db.insert('tvCompanies', {
+					tvShowId: row.tvShowId,
+					companyId,
+					companyTmdbId: args.tmdbCompanyId,
+					mediaTmdbId: row.mediaTmdbId,
+					billingOrder: row.billingOrder,
+					source: COMPANY_LINK_SOURCE
+				});
+			},
+			buildEntityPatch: (existing) => ({
+				...(existing.companyId !== companyId ? { companyId } : {}),
+				...(existing.companyTmdbId !== args.tmdbCompanyId
+					? { companyTmdbId: args.tmdbCompanyId }
+					: {})
+			})
+		});
 	}
 });
 
@@ -860,7 +1018,7 @@ export const getPersonPageFromTMDB = action({
 			| 'producer';
 		const inLibraryOnly = args.inLibraryOnly ?? false;
 		const unwatchedOnly = args.unwatchedOnly ?? false;
-		const safeLimit = Math.max(1, Math.min(args.limit ?? 100, 250));
+		const safeLimit = clampWorksLimit(args.limit);
 		const identity = await ctx.auth.getUserIdentity();
 		const userId = identity?.subject ?? null;
 
@@ -881,20 +1039,15 @@ export const getPersonPageFromTMDB = action({
 			roleFilter
 		});
 
-		const libraryStates = await ctx.runQuery(internal.entities.resolveWorksLibraryState, {
+		const filtered = await annotateAndFilterWorks(ctx, {
 			userId,
-			personTmdbId: payload.id,
-			works: worksData.works.map((work, index) => ({
-				mediaType: work.mediaType,
-				tmdbId: work.tmdbId,
-				billingOrder: work.billingOrder ?? index
-			}))
-		});
-		const annotated = annotateWorksWithLibraryState(worksData.works, libraryStates as WorkLibraryState[]);
-		const filtered = applyWorksFilters(annotated, {
+			works: worksData.works,
 			mediaFilter: 'all',
 			inLibraryOnly,
-			unwatchedOnly
+			unwatchedOnly,
+			queryContext: {
+				personTmdbId: payload.id
+			}
 		});
 
 		return {
@@ -924,7 +1077,7 @@ export const getCompanyPageFromTMDB = action({
 		const mediaFilter = (args.mediaFilter ?? 'all') as 'all' | 'movie' | 'tv';
 		const inLibraryOnly = args.inLibraryOnly ?? false;
 		const unwatchedOnly = args.unwatchedOnly ?? false;
-		const safeLimit = Math.max(1, Math.min(args.limit ?? 100, 250));
+		const safeLimit = clampWorksLimit(args.limit);
 		const identity = await ctx.auth.getUserIdentity();
 		const userId = identity?.subject ?? null;
 
@@ -936,19 +1089,21 @@ export const getCompanyPageFromTMDB = action({
 
 		const roles = movieWorks.length > 0 || tvWorks.length > 0 ? ['production'] : [];
 		const deduped = dedupeWorks([...movieWorks, ...tvWorks]).sort(sortWorksByDateThenTitle);
-		const libraryStates = await ctx.runQuery(internal.entities.resolveWorksLibraryState, {
-			userId,
-			works: deduped.map((work, index) => ({
-				mediaType: work.mediaType,
-				tmdbId: work.tmdbId,
-				billingOrder: work.billingOrder ?? index
-			}))
+		await ctx.runMutation(internal.entities.syncCompanyFromTMDB, {
+			tmdbCompanyId: payload.id,
+			name: payload.name,
+			logoPath: payload.logo_path,
+			references: toWorkReferences(deduped)
 		});
-		const annotated = annotateWorksWithLibraryState(deduped, libraryStates as WorkLibraryState[]);
-		const filtered = applyWorksFilters(annotated, {
+		const filtered = await annotateAndFilterWorks(ctx, {
+			userId,
+			works: deduped,
 			mediaFilter,
 			inLibraryOnly,
-			unwatchedOnly
+			unwatchedOnly,
+			queryContext: {
+				companyTmdbId: payload.id
+			}
 		});
 
 		return {

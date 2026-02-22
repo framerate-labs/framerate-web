@@ -1,15 +1,264 @@
 import type { Id } from './_generated/dataModel';
-import type { MediaSource } from './lib/mediaLookup';
+import type { MediaSource } from './utils/mediaLookup';
+import type { MutationCtx, QueryCtx } from './_generated/server';
+import type { ResolvedMedia, ReviewSnapshot } from './types/reviewTypes';
 
 import { v } from 'convex/values';
 
+import { api } from './_generated/api';
 import { mutation, query } from './_generated/server';
-import { getMovieBySource, getTVShowBySource } from './lib/mediaLookup';
-import { validateRating } from './lib/validateRating';
+import { getMovieBySource, getTVShowBySource } from './utils/mediaLookup';
+import { validateRating } from './utils/validateRating';
 
 // Argument validators
 const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));
 const sourceValidator = v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb'));
+
+function needsDetailHydration(media: {
+	detailSchemaVersion?: number | null;
+	detailFetchedAt?: number | null;
+	creatorCredits?: unknown[] | null;
+}): boolean {
+	return (
+		(media.detailSchemaVersion ?? 0) < 1 ||
+		media.detailFetchedAt === null ||
+		media.detailFetchedAt === undefined ||
+		(media.creatorCredits ?? []).length === 0
+	);
+}
+
+async function scheduleDetailHydrationForTMDB(
+	ctx: {
+		scheduler: {
+			runAfter: (
+				delayMs: number,
+				fn: typeof api.details.refreshIfStale,
+				args: {
+					mediaType: 'movie' | 'tv';
+					id: number;
+					source: 'tmdb';
+					force: boolean;
+				}
+			) => Promise<unknown>;
+		};
+	},
+	mediaType: 'movie' | 'tv',
+	source: MediaSource,
+	externalId: number | string
+): Promise<void> {
+	if (source !== 'tmdb' || typeof externalId !== 'number') return;
+	try {
+		await ctx.scheduler.runAfter(0, api.details.refreshIfStale, {
+			mediaType,
+			id: externalId,
+			source: 'tmdb',
+			force: true
+		});
+	} catch {
+		// Best effort only; review writes should not fail if hydration scheduling fails.
+	}
+}
+
+function applyExternalSourceId(
+	target: { tmdbId?: number; traktId?: number; imdbId?: string },
+	source: MediaSource,
+	externalId: number | string
+): void {
+	if (source === 'tmdb') {
+		target.tmdbId = externalId as number;
+		return;
+	}
+	if (source === 'trakt') {
+		target.traktId = externalId as number;
+		return;
+	}
+	target.imdbId = externalId as string;
+}
+
+async function resolveMedia(
+	ctx: QueryCtx | MutationCtx,
+	mediaType: 'movie' | 'tv',
+	source: MediaSource,
+	externalId: number | string
+): Promise<ResolvedMedia | null> {
+	if (mediaType === 'movie') {
+		const movie = await getMovieBySource(ctx, source, externalId);
+		return movie ? { mediaType: 'movie', media: movie } : null;
+	}
+	const tvShow = await getTVShowBySource(ctx, source, externalId);
+	return tvShow ? { mediaType: 'tv', media: tvShow } : null;
+}
+
+async function getUserReviewForMedia(
+	ctx: QueryCtx | MutationCtx,
+	userId: string,
+	resolved: ResolvedMedia
+): Promise<ReviewSnapshot | null> {
+	if (resolved.mediaType === 'movie') {
+		const review = await ctx.db
+			.query('movieReviews')
+			.withIndex('by_userId_movieId', (q) => q.eq('userId', userId).eq('movieId', resolved.media._id))
+			.unique();
+		return review
+			? {
+					liked: review.liked,
+					watched: review.watched,
+					review: review.review,
+					rating: review.rating,
+					createdAt: review.createdAt
+				}
+			: null;
+	}
+
+	const review = await ctx.db
+		.query('tvReviews')
+		.withIndex('by_userId_tvShowId', (q) => q.eq('userId', userId).eq('tvShowId', resolved.media._id))
+		.unique();
+	return review
+		? {
+				liked: review.liked,
+				watched: review.watched,
+				review: review.review,
+				rating: review.rating,
+				createdAt: review.createdAt
+			}
+		: null;
+}
+
+async function getRatingsForMedia(
+	ctx: QueryCtx | MutationCtx,
+	resolved: ResolvedMedia
+): Promise<Array<{ rating: string }>> {
+	if (resolved.mediaType === 'movie') {
+		return await ctx.db
+			.query('movieReviews')
+			.withIndex('by_movieId', (q) => q.eq('movieId', resolved.media._id))
+			.collect();
+	}
+	return await ctx.db
+		.query('tvReviews')
+		.withIndex('by_tvShowId', (q) => q.eq('tvShowId', resolved.media._id))
+		.collect();
+}
+
+async function deleteUserReviewForMedia(
+	ctx: MutationCtx,
+	userId: string,
+	resolved: ResolvedMedia
+): Promise<boolean> {
+	if (resolved.mediaType === 'movie') {
+		const review = await ctx.db
+			.query('movieReviews')
+			.withIndex('by_userId_movieId', (q) => q.eq('userId', userId).eq('movieId', resolved.media._id))
+			.unique();
+		if (!review) return false;
+		await ctx.db.delete(review._id);
+		return true;
+	}
+	const review = await ctx.db
+		.query('tvReviews')
+		.withIndex('by_userId_tvShowId', (q) => q.eq('userId', userId).eq('tvShowId', resolved.media._id))
+		.unique();
+	if (!review) return false;
+	await ctx.db.delete(review._id);
+	return true;
+}
+
+function createMovieSeedData(args: {
+	source: MediaSource;
+	externalId: number | string;
+	title: string;
+	posterPath: string | null;
+	now: number;
+}) {
+	const movieData: {
+		tmdbId?: number;
+		traktId?: number;
+		imdbId?: string;
+		title: string;
+		posterPath: string | null;
+		backdropPath: null;
+		releaseDate: null;
+		overview: null;
+		status: null;
+		runtime: null;
+		director: null;
+		creatorCredits: [];
+		detailSchemaVersion: number;
+		detailFetchedAt: null;
+		nextRefreshAt: number;
+		refreshErrorCount: number;
+		lastRefreshErrorAt: null;
+	} = {
+		title: args.title,
+		posterPath: args.posterPath,
+		backdropPath: null,
+		releaseDate: null,
+		overview: null,
+		status: null,
+		runtime: null,
+		director: null,
+		creatorCredits: [],
+		detailSchemaVersion: 0,
+		detailFetchedAt: null,
+		nextRefreshAt: args.now,
+		refreshErrorCount: 0,
+		lastRefreshErrorAt: null
+	};
+	applyExternalSourceId(movieData, args.source, args.externalId);
+	return movieData;
+}
+
+function createTVSeedData(args: {
+	source: MediaSource;
+	externalId: number | string;
+	title: string;
+	posterPath: string | null;
+	now: number;
+}) {
+	const tvShowData: {
+		tmdbId?: number;
+		traktId?: number;
+		imdbId?: string;
+		title: string;
+		posterPath: string | null;
+		backdropPath: null;
+		releaseDate: null;
+		overview: null;
+		status: null;
+		numberOfSeasons: null;
+		lastAirDate: null;
+		lastEpisodeToAir: null;
+		nextEpisodeToAir: null;
+		creator: null;
+		creatorCredits: [];
+		detailSchemaVersion: number;
+		detailFetchedAt: null;
+		nextRefreshAt: number;
+		refreshErrorCount: number;
+		lastRefreshErrorAt: null;
+	} = {
+		title: args.title,
+		posterPath: args.posterPath,
+		backdropPath: null,
+		releaseDate: null,
+		overview: null,
+		status: null,
+		numberOfSeasons: null,
+		lastAirDate: null,
+		lastEpisodeToAir: null,
+		nextEpisodeToAir: null,
+		creator: null,
+		creatorCredits: [],
+		detailSchemaVersion: 0,
+		detailFetchedAt: null,
+		nextRefreshAt: args.now,
+		refreshErrorCount: 0,
+		lastRefreshErrorAt: null
+	};
+	applyExternalSourceId(tvShowData, args.source, args.externalId);
+	return tvShowData;
+}
 
 /**
  * Query: Get user's review for a specific media item.
@@ -34,48 +283,23 @@ export const get = query({
 			throw new Error('Unauthorized: Please login or signup to continue');
 		}
 
-		// Look up media by source and external ID to get internal ID
-		if (args.mediaType === 'movie') {
-			const movie = await getMovieBySource(ctx, args.source as MediaSource, args.externalId);
+		const resolved = await resolveMedia(
+			ctx,
+			args.mediaType as 'movie' | 'tv',
+			args.source as MediaSource,
+			args.externalId
+		);
+		if (!resolved) return null;
 
-			if (!movie) return null; // Media not in our DB yet
+		const review = await getUserReviewForMedia(ctx, identity.subject, resolved);
+		if (!review) return null;
 
-			const review = await ctx.db
-				.query('movieReviews')
-				.withIndex('by_userId_movieId', (q) =>
-					q.eq('userId', identity.subject).eq('movieId', movie._id)
-				)
-				.unique();
-
-			if (!review) return null;
-
-			return {
-				liked: review.liked,
-				watched: review.watched,
-				review: review.review,
-				rating: review.rating
-			};
-		} else {
-			const tvShow = await getTVShowBySource(ctx, args.source as MediaSource, args.externalId);
-
-			if (!tvShow) return null; // Media not in our DB yet
-
-			const review = await ctx.db
-				.query('tvReviews')
-				.withIndex('by_userId_tvShowId', (q) =>
-					q.eq('userId', identity.subject).eq('tvShowId', tvShow._id)
-				)
-				.unique();
-
-			if (!review) return null;
-
-			return {
-				liked: review.liked,
-				watched: review.watched,
-				review: review.review,
-				rating: review.rating
-			};
-		}
+		return {
+			liked: review.liked,
+			watched: review.watched,
+			review: review.review,
+			rating: review.rating
+		};
 	}
 });
 
@@ -169,54 +393,28 @@ export const getAverage = query({
 		externalId: v.union(v.number(), v.string())
 	},
 	handler: async (ctx, args) => {
-		// Look up media by source and external ID to get internal ID
-		if (args.mediaType === 'movie') {
-			const movie = await getMovieBySource(ctx, args.source as MediaSource, args.externalId);
-
-			if (!movie) {
-				return { avgRating: null, reviewCount: 0 };
-			}
-
-			const reviews = await ctx.db
-				.query('movieReviews')
-				.withIndex('by_movieId', (q) => q.eq('movieId', movie._id))
-				.collect();
-
-			if (reviews.length === 0) {
-				return { avgRating: null, reviewCount: 0 };
-			}
-
-			const sum = reviews.reduce((acc, review) => acc + Number(review.rating), 0);
-			const avgRating = sum / reviews.length;
-
-			return {
-				avgRating: Number(avgRating.toFixed(1)),
-				reviewCount: reviews.length
-			};
-		} else {
-			const tvShow = await getTVShowBySource(ctx, args.source as MediaSource, args.externalId);
-
-			if (!tvShow) {
-				return { avgRating: null, reviewCount: 0 };
-			}
-
-			const reviews = await ctx.db
-				.query('tvReviews')
-				.withIndex('by_tvShowId', (q) => q.eq('tvShowId', tvShow._id))
-				.collect();
-
-			if (reviews.length === 0) {
-				return { avgRating: null, reviewCount: 0 };
-			}
-
-			const sum = reviews.reduce((acc, review) => acc + Number(review.rating), 0);
-			const avgRating = sum / reviews.length;
-
-			return {
-				avgRating: Number(avgRating.toFixed(1)),
-				reviewCount: reviews.length
-			};
+		const resolved = await resolveMedia(
+			ctx,
+			args.mediaType as 'movie' | 'tv',
+			args.source as MediaSource,
+			args.externalId
+		);
+		if (!resolved) {
+			return { avgRating: null, reviewCount: 0 };
 		}
+
+		const reviews = await getRatingsForMedia(ctx, resolved);
+		if (reviews.length === 0) {
+			return { avgRating: null, reviewCount: 0 };
+		}
+
+		const sum = reviews.reduce((acc, review) => acc + Number(review.rating), 0);
+		const avgRating = sum / reviews.length;
+
+		return {
+			avgRating: Number(avgRating.toFixed(1)),
+			reviewCount: reviews.length
+		};
 	}
 });
 
@@ -255,55 +453,25 @@ export const getDistribution = query({
 			return Math.min(bucketCount - 1, Math.max(0, steps));
 		};
 
-		if (args.mediaType === 'movie') {
-			const movie = await getMovieBySource(ctx, args.source as MediaSource, args.externalId);
+		const resolved = await resolveMedia(
+			ctx,
+			args.mediaType as 'movie' | 'tv',
+			args.source as MediaSource,
+			args.externalId
+		);
+		if (!resolved) return empty;
 
-			if (!movie) {
-				return empty;
-			}
+		const reviews = await getRatingsForMedia(ctx, resolved);
+		if (reviews.length === 0) return empty;
 
-			const reviews = await ctx.db
-				.query('movieReviews')
-				.withIndex('by_movieId', (q) => q.eq('movieId', movie._id))
-				.collect();
-
-			if (reviews.length === 0) {
-				return empty;
-			}
-
-			const counts = Array(bucketCount).fill(0);
-			for (const review of reviews) {
-				const index = bucketize(review.rating);
-				if (index === null) continue;
-				counts[index] += 1;
-			}
-
-			return { counts, totalCount: reviews.length };
-		} else {
-			const tvShow = await getTVShowBySource(ctx, args.source as MediaSource, args.externalId);
-
-			if (!tvShow) {
-				return empty;
-			}
-
-			const reviews = await ctx.db
-				.query('tvReviews')
-				.withIndex('by_tvShowId', (q) => q.eq('tvShowId', tvShow._id))
-				.collect();
-
-			if (reviews.length === 0) {
-				return empty;
-			}
-
-			const counts = Array(bucketCount).fill(0);
-			for (const review of reviews) {
-				const index = bucketize(review.rating);
-				if (index === null) continue;
-				counts[index] += 1;
-			}
-
-			return { counts, totalCount: reviews.length };
+		const counts = Array(bucketCount).fill(0);
+		for (const review of reviews) {
+			const index = bucketize(review.rating);
+			if (index === null) continue;
+			counts[index] += 1;
 		}
+
+		return { counts, totalCount: reviews.length };
 	}
 });
 
@@ -348,66 +516,25 @@ export const add = mutation({
 		const now = Date.now();
 
 		if (args.mediaType === 'movie') {
-			// Get or create movie record
 			const movie = await getMovieBySource(ctx, args.source as MediaSource, args.externalId);
-
 			let movieId: Id<'movies'>;
+			let shouldHydrateDetails = movie ? needsDetailHydration(movie) : false;
 			if (!movie) {
-				// Create movie record if it doesn't exist
-				// Set the appropriate source ID field based on source
-				const movieData: {
-					tmdbId?: number;
-					traktId?: number;
-					imdbId?: string;
-					title: string;
-					posterPath: string | null;
-					backdropPath: null;
-					releaseDate: null;
-					overview: null;
-					status: null;
-					runtime: null;
-					primaryStudioTmdbId: null;
-					primaryStudioName: null;
-					director: null;
-					creatorCredits: [];
-					detailSchemaVersion: number;
-					detailFetchedAt: null;
-					nextRefreshAt: number;
-					refreshErrorCount: number;
-					lastRefreshErrorAt: null;
-				} = {
-					title: args.title,
-					posterPath: args.posterPath,
-					backdropPath: null,
-					releaseDate: null,
-					overview: null,
-					status: null,
-					runtime: null,
-					primaryStudioTmdbId: null,
-					primaryStudioName: null,
-					director: null,
-					creatorCredits: [],
-					detailSchemaVersion: 0,
-					detailFetchedAt: null,
-					nextRefreshAt: now,
-					refreshErrorCount: 0,
-					lastRefreshErrorAt: null
-				};
-
-				if (args.source === 'tmdb') {
-					movieData.tmdbId = args.externalId as number;
-				} else if (args.source === 'trakt') {
-					movieData.traktId = args.externalId as number;
-				} else if (args.source === 'imdb') {
-					movieData.imdbId = args.externalId as string;
-				}
-
-				movieId = await ctx.db.insert('movies', movieData);
+				movieId = await ctx.db.insert(
+					'movies',
+					createMovieSeedData({
+						source: args.source as MediaSource,
+						externalId: args.externalId,
+						title: args.title,
+						posterPath: args.posterPath,
+						now
+					})
+				);
+				shouldHydrateDetails = true;
 			} else {
 				movieId = movie._id;
 			}
 
-			// Check if review already exists
 			const existing = await ctx.db
 				.query('movieReviews')
 				.withIndex('by_userId_movieId', (q) =>
@@ -417,17 +544,15 @@ export const add = mutation({
 
 			let reviewCreatedAt = now;
 			if (existing) {
-				// Update existing review - preserve original createdAt
 				reviewCreatedAt = existing.createdAt;
 				await ctx.db.patch(existing._id, {
 					rating: ratingTrimmed,
 					updatedAt: now
 				});
 			} else {
-				// Insert new review
 				await ctx.db.insert('movieReviews', {
 					userId: identity.subject,
-					movieId: movieId,
+					movieId,
 					rating: ratingTrimmed,
 					liked: false,
 					watched: true,
@@ -438,9 +563,16 @@ export const add = mutation({
 				});
 			}
 
-			// Get final movie data for return
-			const finalMovie = await ctx.db.get(movieId);
+			if (shouldHydrateDetails) {
+				await scheduleDetailHydrationForTMDB(
+					ctx,
+					'movie',
+					args.source as MediaSource,
+					args.externalId
+				);
+			}
 
+			const finalMovie = await ctx.db.get(movieId);
 			return {
 				tmdbId: finalMovie?.tmdbId,
 				traktId: finalMovie?.traktId,
@@ -451,117 +583,70 @@ export const add = mutation({
 				rating: ratingTrimmed,
 				createdAt: reviewCreatedAt
 			};
-		} else {
-			// Get or create TV show record
-			const tvShow = await getTVShowBySource(ctx, args.source as MediaSource, args.externalId);
+		}
 
-			let tvShowId: Id<'tvShows'>;
+		const tvShow = await getTVShowBySource(ctx, args.source as MediaSource, args.externalId);
+		let tvShowId: Id<'tvShows'>;
+		let shouldHydrateDetails = tvShow ? needsDetailHydration(tvShow) : false;
 			if (!tvShow) {
-				// Create TV show record if it doesn't exist
-				// Set the appropriate source ID field based on source
-				const tvShowData: {
-					tmdbId?: number;
-					traktId?: number;
-					imdbId?: string;
-					title: string;
-					posterPath: string | null;
-					backdropPath: null;
-					releaseDate: null;
-					overview: null;
-					status: null;
-					numberOfSeasons: null;
-					lastAirDate: null;
-					lastEpisodeToAir: null;
-					nextEpisodeToAir: null;
-					primaryStudioTmdbId: null;
-					primaryStudioName: null;
-					creator: null;
-					creatorCredits: [];
-					detailSchemaVersion: number;
-					detailFetchedAt: null;
-					nextRefreshAt: number;
-					refreshErrorCount: number;
-					lastRefreshErrorAt: null;
-				} = {
-					title: args.title,
-					posterPath: args.posterPath,
-					backdropPath: null,
-					releaseDate: null,
-					overview: null,
-					status: null,
-					numberOfSeasons: null,
-					lastAirDate: null,
-					lastEpisodeToAir: null,
-					nextEpisodeToAir: null,
-					primaryStudioTmdbId: null,
-					primaryStudioName: null,
-					creator: null,
-					creatorCredits: [],
-					detailSchemaVersion: 0,
-					detailFetchedAt: null,
-					nextRefreshAt: now,
-					refreshErrorCount: 0,
-					lastRefreshErrorAt: null
-				};
-
-				if (args.source === 'tmdb') {
-					tvShowData.tmdbId = args.externalId as number;
-				} else if (args.source === 'trakt') {
-					tvShowData.traktId = args.externalId as number;
-				} else if (args.source === 'imdb') {
-					tvShowData.imdbId = args.externalId as string;
-				}
-
-				tvShowId = await ctx.db.insert('tvShows', tvShowData);
+				tvShowId = await ctx.db.insert(
+					'tvShows',
+					createTVSeedData({
+						source: args.source as MediaSource,
+						externalId: args.externalId,
+						title: args.title,
+						posterPath: args.posterPath,
+						now
+					})
+				);
+				shouldHydrateDetails = true;
 			} else {
 				tvShowId = tvShow._id;
-			}
-
-			// Check if review already exists
-			const existing = await ctx.db
-				.query('tvReviews')
-				.withIndex('by_userId_tvShowId', (q) =>
-					q.eq('userId', identity.subject).eq('tvShowId', tvShowId)
-				)
-				.unique();
-
-			let reviewCreatedAt = now;
-			if (existing) {
-				// Update existing review - preserve original createdAt
-				reviewCreatedAt = existing.createdAt;
-				await ctx.db.patch(existing._id, {
-					rating: ratingTrimmed,
-					updatedAt: now
-				});
-			} else {
-				// Insert new review
-				await ctx.db.insert('tvReviews', {
-					userId: identity.subject,
-					tvShowId: tvShowId,
-					rating: ratingTrimmed,
-					liked: false,
-					watched: true,
-					review: null,
-					mediaType: 'tv',
-					createdAt: now,
-					updatedAt: now
-				});
-			}
-
-			// Get final TV show data for return
-			const finalTvShow = await ctx.db.get(tvShowId);
-
-			return {
-				tmdbId: finalTvShow?.tmdbId,
-				traktId: finalTvShow?.traktId,
-				imdbId: finalTvShow?.imdbId,
-				mediaType: 'tv' as const,
-				title: finalTvShow?.title ?? args.title,
-				posterPath: finalTvShow?.posterPath ?? args.posterPath,
-				rating: ratingTrimmed,
-				createdAt: reviewCreatedAt
-			};
 		}
+
+		const existing = await ctx.db
+			.query('tvReviews')
+			.withIndex('by_userId_tvShowId', (q) =>
+				q.eq('userId', identity.subject).eq('tvShowId', tvShowId)
+			)
+			.unique();
+
+		let reviewCreatedAt = now;
+		if (existing) {
+			reviewCreatedAt = existing.createdAt;
+			await ctx.db.patch(existing._id, {
+				rating: ratingTrimmed,
+				updatedAt: now
+			});
+		} else {
+			await ctx.db.insert('tvReviews', {
+				userId: identity.subject,
+				tvShowId,
+				rating: ratingTrimmed,
+				liked: false,
+				watched: true,
+				review: null,
+				mediaType: 'tv',
+				createdAt: now,
+				updatedAt: now
+			});
+		}
+
+		if (shouldHydrateDetails) {
+			await scheduleDetailHydrationForTMDB(ctx, 'tv', args.source as MediaSource, args.externalId);
+		}
+
+		const finalTvShow = await ctx.db.get(tvShowId);
+		return {
+			tmdbId: finalTvShow?.tmdbId,
+			traktId: finalTvShow?.traktId,
+			imdbId: finalTvShow?.imdbId,
+			mediaType: 'tv' as const,
+			title: finalTvShow?.title ?? args.title,
+			posterPath: finalTvShow?.posterPath ?? args.posterPath,
+			rating: ratingTrimmed,
+			createdAt: reviewCreatedAt
+		};
 	}
 });
 
@@ -588,39 +673,14 @@ export const deleteReview = mutation({
 			throw new Error('Unauthorized: Please login or signup to continue');
 		}
 
-		// Look up media by source and external ID to get internal ID
-		if (args.mediaType === 'movie') {
-			const movie = await getMovieBySource(ctx, args.source as MediaSource, args.externalId);
+		const resolved = await resolveMedia(
+			ctx,
+			args.mediaType as 'movie' | 'tv',
+			args.source as MediaSource,
+			args.externalId
+		);
+		if (!resolved) return false;
 
-			if (!movie) return false; // Media not in DB
-
-			const review = await ctx.db
-				.query('movieReviews')
-				.withIndex('by_userId_movieId', (q) =>
-					q.eq('userId', identity.subject).eq('movieId', movie._id)
-				)
-				.unique();
-
-			if (!review) return false;
-
-			await ctx.db.delete(review._id);
-			return true;
-		} else {
-			const tvShow = await getTVShowBySource(ctx, args.source as MediaSource, args.externalId);
-
-			if (!tvShow) return false; // Media not in DB
-
-			const review = await ctx.db
-				.query('tvReviews')
-				.withIndex('by_userId_tvShowId', (q) =>
-					q.eq('userId', identity.subject).eq('tvShowId', tvShow._id)
-				)
-				.unique();
-
-			if (!review) return false;
-
-			await ctx.db.delete(review._id);
-			return true;
-		}
+		return await deleteUserReviewForMedia(ctx, identity.subject, resolved);
 	}
 });

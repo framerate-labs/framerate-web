@@ -1,12 +1,9 @@
 import { v } from 'convex/values';
 import { query, internalAction, internalMutation } from './_generated/server';
 import { internal } from './_generated/api';
-import {
-	fetchTrendingFromTMDB,
-	type Filter,
-	type TimeWindow,
-	type NormalizedTrendingItem
-} from './services/trendingService';
+import type { Filter, NormalizedTrendingItem, TimeWindow } from './types/tmdb/trendingTypes';
+import { upsertByExisting } from './utils/upsert';
+import { fetchTrendingFromTMDB } from './services/trendingService';
 
 // Argument validators (reusable)
 const filterValidator = v.union(
@@ -84,29 +81,28 @@ export const storeTrendingCache = internalMutation({
 		fetchedAt: v.number()
 	},
 	handler: async (ctx, args) => {
-		// Check for existing cache entry
-		const existing = await ctx.db
-			.query('trendingCache')
-			.withIndex('by_filter_timeWindow', (q) =>
-				q.eq('filter', args.filter).eq('timeWindow', args.timeWindow)
-			)
-			.unique();
-
-		if (existing) {
-			// Update existing cache
-			await ctx.db.patch(existing._id, {
-				items: args.items,
-				fetchedAt: args.fetchedAt
-			});
-		} else {
-			// Create new cache entry
-			await ctx.db.insert('trendingCache', {
-				filter: args.filter,
-				timeWindow: args.timeWindow,
-				items: args.items,
-				fetchedAt: args.fetchedAt
-			});
-		}
+		await upsertByExisting({
+			findExisting: () =>
+				ctx.db
+					.query('trendingCache')
+					.withIndex('by_filter_timeWindow', (q) =>
+						q.eq('filter', args.filter).eq('timeWindow', args.timeWindow)
+					)
+					.unique(),
+			onInsert: async () => {
+				await ctx.db.insert('trendingCache', {
+					filter: args.filter,
+					timeWindow: args.timeWindow,
+					items: args.items,
+					fetchedAt: args.fetchedAt
+				});
+			},
+			onUpdate: (existing) =>
+				ctx.db.patch(existing._id, {
+					items: args.items,
+					fetchedAt: args.fetchedAt
+				})
+		});
 	}
 });
 

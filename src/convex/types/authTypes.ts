@@ -1,0 +1,8 @@
+export type AuthErrorCodeValue =
+	| 'NO_SESSION'
+	| 'SESSION_EXPIRED'
+	| 'TOKEN_REVOKED'
+	| 'TOKEN_REUSE_DETECTED'
+	| 'WORKOS_ERROR'
+	| 'UNAUTHORIZED'
+	| 'INVALID_DEVICE';

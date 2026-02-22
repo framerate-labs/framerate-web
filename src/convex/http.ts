@@ -8,7 +8,7 @@
 import { httpRouter } from 'convex/server';
 import { httpAction } from './_generated/server';
 import { internal } from './_generated/api';
-import { verifyDeviceSecret } from './lib/deviceSecret';
+import { verifyDeviceSecret } from './utils/deviceSecret';
 
 const http = httpRouter();
 

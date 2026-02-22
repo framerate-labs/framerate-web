@@ -2,7 +2,9 @@ import { v } from 'convex/values';
 
 import { internal } from './_generated/api';
 import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
-import { fetchSearchFromTMDB, type NormalizedSearchItem } from './services/searchService';
+import type { NormalizedSearchItem } from './types/tmdb/searchTypes';
+import { upsertByExisting } from './utils/upsert';
+import { fetchSearchFromTMDB } from './services/searchService';
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 20;
@@ -17,6 +19,15 @@ const RATE_LIMIT_RETENTION_MS = 10 * 60 * 1000;
 
 function normalizeQuery(query: string): string {
 	return query.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+async function deleteRows<TRow extends { _id: string }>(
+	rows: TRow[],
+	deleteById: (id: TRow['_id']) => Promise<void>
+): Promise<void> {
+	for (const row of rows) {
+		await deleteById(row._id);
+	}
 }
 
 export const getCachedResults = internalQuery({
@@ -61,30 +72,28 @@ export const storeCachedResults = internalMutation({
 		fetchedAt: v.number()
 	},
 	handler: async (ctx, args) => {
-		const existing = await ctx.db
-			.query('searchCache')
-			.withIndex('by_queryKey_limit', (q) => q.eq('queryKey', args.queryKey).eq('limit', args.limit))
-			.unique();
-
-		if (existing) {
-			await ctx.db.patch(existing._id, {
-				items: args.items,
-				fetchedAt: args.fetchedAt
-			});
-			return;
-		}
-
-		await ctx.db.insert('searchCache', {
-			queryKey: args.queryKey,
-			limit: args.limit,
-			items: args.items,
-			fetchedAt: args.fetchedAt
+		await upsertByExisting({
+			findExisting: () =>
+				ctx.db
+					.query('searchCache')
+					.withIndex('by_queryKey_limit', (q) => q.eq('queryKey', args.queryKey).eq('limit', args.limit))
+					.unique(),
+			onInsert: async () => {
+				await ctx.db.insert('searchCache', {
+					queryKey: args.queryKey,
+					limit: args.limit,
+					items: args.items,
+					fetchedAt: args.fetchedAt
+				});
+			},
+			onUpdate: (existing) =>
+				ctx.db.patch(existing._id, {
+					items: args.items,
+					fetchedAt: args.fetchedAt
+				})
 		});
 	}
 });
-
-
-
 
 export const cleanupSearchCache = internalMutation({
 	args: {
@@ -96,10 +105,7 @@ export const cleanupSearchCache = internalMutation({
 			.query('searchCache')
 			.withIndex('by_fetchedAt', (q) => q.lt('fetchedAt', staleBefore))
 			.take(100);
-
-		for (const row of staleRows) {
-			await ctx.db.delete(row._id);
-		}
+		await deleteRows(staleRows, (id) => ctx.db.delete(id));
 	}
 });
 
@@ -113,10 +119,7 @@ export const cleanupSearchRateLimit = internalMutation({
 			.query('searchRateLimit')
 			.withIndex('by_bucketStart', (q) => q.lt('bucketStart', staleBefore))
 			.take(200);
-
-		for (const row of staleRows) {
-			await ctx.db.delete(row._id);
-		}
+		await deleteRows(staleRows, (id) => ctx.db.delete(id));
 	}
 });
 
@@ -160,7 +163,6 @@ export const enforceRateLimit = internalMutation({
 				updatedAt: args.now
 			});
 		}
-
 	}
 });
 

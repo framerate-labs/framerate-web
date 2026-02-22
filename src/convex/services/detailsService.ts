@@ -5,328 +5,21 @@
  * Used by Convex actions to fetch media details on-demand.
  */
 
-export type MediaType = 'movie' | 'tv';
-
-type TMDBError = {
-	success: boolean;
-	status_code: number;
-	status_message: string;
-};
-
-// Raw TMDB response types (snake_case)
-interface Genre {
-	id: number;
-	name: string;
-}
-
-interface ProductionCompany {
-	id: number;
-	logo_path: string | null;
-	name: string;
-	origin_country: string;
-}
-
-interface ProductionCountry {
-	iso_3166_1: string;
-	name: string;
-}
-
-interface SpokenLanguage {
-	english_name: string;
-	iso_639_1: string;
-	name: string;
-}
-
-interface PersonCredit {
-	adult: boolean;
-	gender: number;
-	id: number;
-	known_for_department: string;
-	name: string;
-	original_name: string;
-	popularity: number;
-	profile_path: string | null;
-	credit_id: string;
-}
-
-interface CastMember extends PersonCredit {
-	character: string;
-	order: number;
-	cast_id?: number;
-}
-
-interface CrewMember extends PersonCredit {
-	department: string;
-	job: string;
-}
-
-interface TMDBCredits {
-	cast: CastMember[];
-	crew: CrewMember[];
-}
-
-interface TMDBMediaBase {
-	adult: boolean;
-	backdrop_path: string | null;
-	genres: Genre[];
-	homepage: string | null;
-	id: number;
-	origin_country: string[];
-	original_language: string;
-	overview: string | null;
-	popularity: number;
-	poster_path: string | null;
-	status: string;
-	tagline: string | null;
-	vote_average: number;
-	vote_count: number;
-	credits: TMDBCredits;
-	production_companies: ProductionCompany[];
-	production_countries: ProductionCountry[];
-	spoken_languages: SpokenLanguage[];
-}
-
-interface TMDBMovieDetails extends TMDBMediaBase {
-	belongs_to_collection: {
-		id: number;
-		name: string;
-		poster_path: string | null;
-		backdrop_path: string | null;
-	} | null;
-	budget: number;
-	imdb_id: string | null;
-	original_title: string;
-	release_date: string | null;
-	revenue: number;
-	runtime: number | null;
-	title: string;
-	video: boolean;
-}
-
-interface TMDBTVCreator {
-	id: number;
-	credit_id: string;
-	name: string;
-	original_name: string;
-	gender: number;
-	profile_path: string | null;
-}
-
-interface TMDBEpisode {
-	id: number;
-	name: string;
-	overview: string | null;
-	vote_average: number;
-	vote_count: number;
-	air_date: string | null;
-	episode_number: number;
-	episode_type: string;
-	production_code: string | null;
-	runtime: number | null;
-	season_number: number;
-	show_id: number;
-	still_path: string | null;
-}
-
-interface TMDBNetwork {
-	id: number;
-	logo_path: string | null;
-	name: string;
-	origin_country: string;
-}
-
-interface TMDBSeason {
-	air_date: string | null;
-	episode_count: number;
-	id: number;
-	name: string;
-	overview: string | null;
-	poster_path: string | null;
-	season_number: number;
-	vote_average: number;
-}
-
-interface TMDBTVDetails extends TMDBMediaBase {
-	created_by: TMDBTVCreator[];
-	episode_run_time: number[];
-	first_air_date: string | null;
-	in_production: boolean;
-	languages: string[];
-	last_air_date: string | null;
-	last_episode_to_air: TMDBEpisode | null;
-	name: string;
-	next_episode_to_air: TMDBEpisode | null;
-	networks: TMDBNetwork[];
-	number_of_episodes: number;
-	number_of_seasons: number;
-	original_name: string;
-	seasons: TMDBSeason[];
-	type: string;
-}
-
-// Normalized output types (camelCase)
-interface NormalizedGenre {
-	id: number;
-	name: string;
-}
-
-interface NormalizedProductionCompany {
-	id: number;
-	logoPath: string | null;
-	name: string;
-	originCountry: string;
-}
-
-interface NormalizedProductionCountry {
-	iso31661: string;
-	name: string;
-}
-
-interface NormalizedSpokenLanguage {
-	englishName: string;
-	iso6391: string;
-	name: string;
-}
-
-interface NormalizedCastMember {
-	adult: boolean;
-	gender: number;
-	id: number;
-	knownForDepartment: string;
-	name: string;
-	originalName: string;
-	popularity: number;
-	profilePath: string | null;
-	character: string;
-	creditId: string;
-	order: number;
-	castId?: number;
-}
-
-interface NormalizedCrewMember {
-	adult: boolean;
-	gender: number;
-	id: number;
-	knownForDepartment: string;
-	name: string;
-	originalName: string;
-	popularity: number;
-	profilePath: string | null;
-	creditId: string;
-	department: string;
-	job: string;
-}
-
-interface NormalizedCredits {
-	cast: NormalizedCastMember[];
-	crew: NormalizedCrewMember[];
-}
-
-interface NormalizedMediaBase {
-	adult: boolean;
-	backdropPath: string | null;
-	genres: NormalizedGenre[];
-	homepage: string | null;
-	id: number;
-	originCountry: string[];
-	originalLanguage: string;
-	overview: string | null;
-	popularity: number;
-	posterPath: string | null;
-	productionCompanies: NormalizedProductionCompany[];
-	productionCountries: NormalizedProductionCountry[];
-	spokenLanguages: NormalizedSpokenLanguage[];
-	status: string;
-	tagline: string | null;
-	voteAverage: number;
-	voteCount: number;
-	credits: NormalizedCredits;
-}
-
-interface NormalizedCreator {
-	id: number;
-	creditId: string;
-	name: string;
-	originalName: string;
-	gender: number;
-	profilePath: string | null;
-}
-
-interface NormalizedEpisode {
-	id: number;
-	name: string;
-	overview: string | null;
-	voteAverage: number;
-	voteCount: number;
-	airDate: string | null;
-	episodeNumber: number;
-	episodeType: string;
-	productionCode: string | null;
-	runtime: number | null;
-	seasonNumber: number;
-	showId: number;
-	stillPath: string | null;
-}
-
-interface NormalizedNetwork {
-	id: number;
-	logoPath: string | null;
-	name: string;
-	originCountry: string;
-}
-
-interface NormalizedSeason {
-	airDate: string | null;
-	episodeCount: number;
-	id: number;
-	name: string;
-	overview: string | null;
-	posterPath: string | null;
-	seasonNumber: number;
-	voteAverage: number;
-}
-
-export interface NormalizedMovieDetails extends NormalizedMediaBase {
-	mediaType: 'movie';
-	belongsToCollection: {
-		id: number;
-		name: string;
-		posterPath: string | null;
-		backdropPath: string | null;
-	} | null;
-	budget: number;
-	director: string;
-	directorList: NormalizedCrewMember[];
-	imdbId: string | null;
-	originalTitle: string;
-	releaseDate: string | null;
-	revenue: number;
-	runtime: number | null;
-	title: string;
-	video: boolean;
-}
-
-export interface NormalizedTVDetails extends NormalizedMediaBase {
-	mediaType: 'tv';
-	creator: string;
-	creatorList: NormalizedCreator[];
-	episodeRunTime: number[];
-	inProduction: boolean;
-	languages: string[];
-	lastAirDate: string | null;
-	lastEpisodeToAir: NormalizedEpisode | null;
-	networks: NormalizedNetwork[];
-	nextEpisodeToAir: NormalizedEpisode | null;
-	numberOfEpisodes: number;
-	numberOfSeasons: number;
-	originalTitle: string;
-	releaseDate: string | null;
-	seasons: NormalizedSeason[];
-	title: string;
-	type: string;
-}
-
-export type NormalizedMediaDetails = NormalizedMovieDetails | NormalizedTVDetails;
+import type { MediaType } from '../types/mediaTypes';
+import type {
+	CastMember,
+	CrewMember,
+	NormalizedCastMember,
+	NormalizedCrewMember,
+	NormalizedMediaDetails,
+	NormalizedMovieDetails,
+	NormalizedTVDetails,
+	TMDBEpisode,
+	TMDBMediaBase,
+	TMDBMovieDetails,
+	TMDBTVDetails
+} from '../types/tmdb/detailsTypes';
+import { fetchTMDBJson } from '../utils/tmdb';
 
 /**
  * Formats an array of people into a display string of names.
@@ -423,7 +116,7 @@ function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
 					name: data.belongs_to_collection.name,
 					posterPath: data.belongs_to_collection.poster_path,
 					backdropPath: data.belongs_to_collection.backdrop_path
-				}
+			  }
 			: null,
 		budget: data.budget,
 		credits: {
@@ -476,7 +169,7 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 	const castMembers = data.credits.cast;
 	const crewMembers = data.credits.crew;
 
-	const normalizeEpisode = (ep: TMDBEpisode | null): NormalizedEpisode | null => {
+	const normalizeEpisode = (ep: TMDBEpisode | null) => {
 		if (!ep) return null;
 		return {
 			id: ep.id,
@@ -531,7 +224,7 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 		numberOfSeasons: data.number_of_seasons,
 		originCountry: data.origin_country,
 		originalLanguage: data.original_language,
-		originalTitle: data.original_name, // Normalized to match movie field name
+		originalTitle: data.original_name,
 		overview: data.overview,
 		popularity: data.popularity,
 		posterPath: data.poster_path,
@@ -545,7 +238,7 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 			iso31661: pc.iso_3166_1,
 			name: pc.name
 		})),
-		releaseDate: data.first_air_date, // Normalized to match movie field name
+		releaseDate: data.first_air_date,
 		seasons: data.seasons.map((s) => ({
 			airDate: s.air_date,
 			episodeCount: s.episode_count,
@@ -563,7 +256,7 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 		})),
 		status: data.status,
 		tagline: data.tagline,
-		title: data.name, // Normalized to match movie field name
+		title: data.name,
 		type: data.type,
 		voteAverage: data.vote_average,
 		voteCount: data.vote_count
@@ -582,35 +275,12 @@ export async function fetchDetailsFromTMDB(
 	mediaType: MediaType,
 	id: number
 ): Promise<NormalizedMediaDetails> {
-	const apiToken = process.env.TMDB_API_TOKEN;
-	if (!apiToken) {
-		throw new Error('Server misconfiguration: missing TMDB_API_TOKEN');
-	}
-
-	const url = `https://api.themoviedb.org/3/${mediaType}/${id}?append_to_response=credits&language=en-US`;
-
-	const response = await fetch(url, {
-		method: 'GET',
-		headers: {
-			accept: 'application/json',
-			Authorization: `Bearer ${apiToken}`
+	const rawData = await fetchTMDBJson(`/${mediaType}/${id}`, {
+		params: {
+			append_to_response: 'credits',
+			language: 'en-US'
 		}
 	});
-
-	if (!response.ok) {
-		let message = `TMDB API Error: ${response.status} ${response.statusText}`;
-		try {
-			const tmdbError = (await response.json()) as TMDBError;
-			if (tmdbError?.status_message) {
-				message = `TMDB API Error: ${tmdbError.status_code} – ${tmdbError.status_message}`;
-			}
-		} catch {
-			// Non-JSON error body
-		}
-		throw new Error(message);
-	}
-
-	const rawData = await response.json();
 
 	if (!validateTMDBResponse(rawData)) {
 		throw new Error('Invalid response structure from TMDB API');
