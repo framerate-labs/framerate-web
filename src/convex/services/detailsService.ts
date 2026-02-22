@@ -160,16 +160,15 @@ export function computeIsAnime(details: NormalizedMediaDetails): boolean {
 	const hasAnimationGenre = details.genres.some(
 		(genre) => genre.id === 16 || genre.name.toLowerCase() === 'animation'
 	);
-	const hasJapaneseLanguage =
-		details.originalLanguage === 'ja' ||
-		details.spokenLanguages.some((language) => language.iso6391 === 'ja') ||
-		(details.mediaType === 'tv' && details.languages.includes('ja'));
+	const hasJapaneseOriginalLanguage = details.originalLanguage === 'ja';
 	const hasJapaneseOrigin =
 		details.originCountry.includes('JP') ||
 		details.productionCountries.some((country) => country.iso31661 === 'JP');
 
-	const score = [hasAnimationGenre, hasJapaneseLanguage, hasJapaneseOrigin].filter(Boolean).length;
-	return score >= 2;
+	// Strict anime classification:
+	// 1) animation genre, 2) original language is Japanese, 3) Japanese origin/production
+	// We intentionally ignore spoken/dub languages to avoid false positives on western animation.
+	return hasAnimationGenre && hasJapaneseOriginalLanguage && hasJapaneseOrigin;
 }
 
 function dedupeCompanies(companies: EnrichmentCompanyInput[]): EnrichmentCompanyInput[] {

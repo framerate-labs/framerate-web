@@ -119,6 +119,8 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
+		// Temporary compatibility field for legacy prod rows; remove after slug purge migration.
+		slug: v.optional(v.union(v.string(), v.null())),
 		isAnime: v.optional(v.boolean()),
 		director: v.optional(v.union(v.string(), v.null())),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
@@ -129,7 +131,8 @@ export default defineSchema({
 		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
 		nextRefreshAt: v.optional(v.number()),
 		refreshErrorCount: v.optional(v.number()),
-		lastRefreshErrorAt: v.union(v.number(), v.null())
+		// Temporary compatibility for legacy rows until details.backfillRequiredDetailFields sets this.
+		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
@@ -145,6 +148,8 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
+		// Temporary compatibility field for legacy prod rows; remove after slug purge migration.
+		slug: v.optional(v.union(v.string(), v.null())),
 		isAnime: v.optional(v.boolean()),
 		creator: v.optional(v.union(v.string(), v.null())),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
@@ -176,7 +181,8 @@ export default defineSchema({
 		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
 		nextRefreshAt: v.optional(v.number()),
 		refreshErrorCount: v.optional(v.number()),
-		lastRefreshErrorAt: v.union(v.number(), v.null())
+		// Temporary compatibility for legacy rows until details.backfillRequiredDetailFields sets this.
+		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
