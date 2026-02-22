@@ -9,7 +9,7 @@ import {
 	ensureMediaRecord,
 	resolveMedia,
 	scheduleDetailHydrationForTMDB
-} from './services/reviewMediaService';
+} from './services/reviewService';
 import {
 	buildReviewListItem,
 	deleteUserReviewForMedia,

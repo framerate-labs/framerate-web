@@ -180,7 +180,7 @@ export async function scheduleDetailHydrationForTMDB(
 	if (source !== 'tmdb' || typeof externalId !== 'number') return;
 
 	try {
-		await ctx.scheduler.runAfter(0, api.details.refreshIfStale, {
+		await ctx.scheduler.runAfter(0, api.detailsRefresh.refreshIfStale, {
 			mediaType,
 			id: externalId,
 			source: 'tmdb',

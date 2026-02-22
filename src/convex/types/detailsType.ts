@@ -116,6 +116,78 @@ export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySourc
 	creatorCredits?: HeaderContributorInput[];
 };
 
+export type SourceIdentifiers = {
+	tmdbId?: number;
+	traktId?: number;
+	imdbId?: string;
+};
+
+export type InsertMediaArgs = {
+	mediaType: 'movie' | 'tv';
+	source: MediaSource;
+	externalId: number | string;
+	title: string;
+	posterPath: string | null;
+	backdropPath: string | null;
+	releaseDate: string | null;
+	overview: string | null;
+	status: string;
+	runtime: number | null;
+	numberOfSeasons?: number;
+	lastAirDate: string | null;
+	lastEpisodeToAir?: StoredEpisodeSummary | null;
+	nextEpisodeToAir?: StoredEpisodeSummary | null;
+	detailSchemaVersion: number;
+	detailFetchedAt: number;
+	nextRefreshAt: number;
+	isAnime: boolean;
+	director: string | null;
+	creator: string | null;
+	creatorCredits: HeaderContributorInput[];
+};
+
+export type MovieInsertDoc = SourceIdentifiers & {
+	title: string;
+	posterPath: string | null;
+	backdropPath: string | null;
+	releaseDate: string | null;
+	detailSchemaVersion: number;
+	detailFetchedAt: number;
+	nextRefreshAt: number;
+	refreshErrorCount: number;
+	lastRefreshErrorAt: number | null;
+	isAnime: boolean;
+	director: string | null;
+	creatorCredits: HeaderContributorInput[];
+	overview: string | null;
+	status: string;
+	runtime: number | null;
+};
+
+export type TVInsertDoc = SourceIdentifiers & {
+	title: string;
+	posterPath: string | null;
+	backdropPath: string | null;
+	releaseDate: string | null;
+	detailSchemaVersion: number;
+	detailFetchedAt: number;
+	nextRefreshAt: number;
+	refreshErrorCount: number;
+	lastRefreshErrorAt: number | null;
+	isAnime: boolean;
+	creator: string | null;
+	creatorCredits: HeaderContributorInput[];
+	overview: string | null;
+	status: string;
+	numberOfSeasons?: number | null;
+	lastAirDate: string | null;
+	lastEpisodeToAir?: StoredEpisodeSummary | null;
+	nextEpisodeToAir?: StoredEpisodeSummary | null;
+};
+
+export type MoviePatch = Partial<Omit<MovieInsertDoc, keyof SourceIdentifiers>>;
+export type TVPatch = Partial<Omit<TVInsertDoc, keyof SourceIdentifiers>>;
+
 export type DetailRefreshLeaseId = Id<'detailRefreshLeases'>;
 export type DetailMediaType = MediaType;
 export type DetailMediaSource = MediaSource;

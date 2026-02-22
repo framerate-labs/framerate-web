@@ -24,7 +24,7 @@ crons.interval(
 crons.interval(
 	'sweep stale details',
 	{ hours: 3 },
-	internal.details.sweepStaleDetails
+	internal.detailsRefresh.sweepStaleDetails
 );
 
 export default crons;
