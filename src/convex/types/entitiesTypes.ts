@@ -1,9 +1,9 @@
 import type { Id } from '../_generated/dataModel';
 
-export type WorkMediaType = 'movie' | 'tv';
+export type MediaWorkType = 'movie' | 'tv';
 
-export type WorkRow = {
-	mediaType: WorkMediaType;
+export type MediaWork = {
+	mediaType: MediaWorkType;
 	tmdbId: number;
 	title: string;
 	posterPath: string | null;
@@ -12,8 +12,8 @@ export type WorkRow = {
 	billingOrder: number | null;
 };
 
-export type AnnotatedWork = {
-	mediaType: WorkMediaType;
+export type AnnotatedMediaWork = {
+	mediaType: MediaWorkType;
 	tmdbId: number;
 	title: string;
 	posterPath: string | null;
@@ -24,7 +24,7 @@ export type AnnotatedWork = {
 };
 
 export type PersonMediaReference = {
-	mediaType: WorkMediaType;
+	mediaType: MediaWorkType;
 	tmdbId: number;
 	billingOrder: number;
 };
@@ -55,14 +55,14 @@ export type DesiredTVLink = {
 
 export type ManagedLinkRowId = Id<'movieCredits'> | Id<'tvCredits'> | Id<'movieCompanies'> | Id<'tvCompanies'>;
 
-export type WorkLibraryState = {
-	mediaType: WorkMediaType;
+export type MediaLibraryState = {
+	mediaType: MediaWorkType;
 	tmdbId: number;
 	inLibrary: boolean;
 	watched: boolean;
 };
 
-export type WorksQueryContext = {
+export type MediaQueryContext = {
 	personTmdbId?: number;
 	companyTmdbId?: number;
 };
