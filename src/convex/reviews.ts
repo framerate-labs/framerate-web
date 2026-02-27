@@ -19,6 +19,7 @@ import {
 	resolveMedia,
 	scheduleDetailHydrationForTMDB
 } from './services/reviewService';
+import { getFinalMovie, getFinalTV } from './utils/mediaLookup';
 import {
 	computeAverageRating,
 	computeRatingDistribution,
@@ -91,7 +92,8 @@ export const getAll = query({
 
 		const movieData = await Promise.all(
 			movieReviews.map(async (review) => {
-				const movie = await ctx.db.get(review.movieId);
+				const movieBase = await ctx.db.get(review.movieId);
+				const movie = movieBase ? await getFinalMovie(ctx, movieBase) : null;
 				return buildReviewListItem({
 					mediaType: 'movie',
 					media: movie,
@@ -105,7 +107,8 @@ export const getAll = query({
 
 		const tvData = await Promise.all(
 			tvReviews.map(async (review) => {
-				const tvShow = await ctx.db.get(review.tvShowId);
+				const tvShowBase = await ctx.db.get(review.tvShowId);
+				const tvShow = tvShowBase ? await getFinalTV(ctx, tvShowBase) : null;
 				return buildReviewListItem({
 					mediaType: 'tv',
 					media: tvShow,
@@ -217,7 +220,8 @@ export const add = mutation({
 			if (ensured.shouldHydrateDetails) {
 				await scheduleDetailHydrationForTMDB(ctx, 'movie', args.source, args.externalId);
 			}
-			const finalMovie = await ctx.db.get(ensured.mediaId);
+			const finalMovieBase = await ctx.db.get(ensured.mediaId);
+			const finalMovie = finalMovieBase ? await getFinalMovie(ctx, finalMovieBase) : null;
 			return {
 				tmdbId: finalMovie?.tmdbId,
 				traktId: finalMovie?.traktId,
@@ -240,7 +244,8 @@ export const add = mutation({
 		if (ensured.shouldHydrateDetails) {
 			await scheduleDetailHydrationForTMDB(ctx, 'tv', args.source, args.externalId);
 		}
-		const finalTvShow = await ctx.db.get(ensured.mediaId);
+		const finalTvShowBase = await ctx.db.get(ensured.mediaId);
+		const finalTvShow = finalTvShowBase ? await getFinalTV(ctx, finalTvShowBase) : null;
 		return {
 			tmdbId: finalTvShow?.tmdbId,
 			traktId: finalTvShow?.traktId,

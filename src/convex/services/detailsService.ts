@@ -1,7 +1,9 @@
 import type {
+	AnimeStudioStatus,
 	DetailRefreshDecision,
 	EnrichmentCompanyInput,
 	HeaderContributorInput,
+	HeaderContributorSource,
 	PreparedDetailSync,
 	StoredEpisodeSummary,
 	StoredMediaSnapshot,
@@ -68,7 +70,11 @@ function sameHeaderContributor(
 		left.type === right.type &&
 		left.tmdbId === right.tmdbId &&
 		left.name === right.name &&
-		left.role === right.role
+		left.role === right.role &&
+		(left.source ?? 'tmdb') === (right.source ?? 'tmdb') &&
+		(left.sourceId ?? null) === (right.sourceId ?? null) &&
+		(left.matchMethod ?? null) === (right.matchMethod ?? null) &&
+		(left.matchConfidence ?? null) === (right.matchConfidence ?? null)
 	);
 }
 
@@ -161,9 +167,7 @@ export function computeIsAnime(details: NormalizedMediaDetails): boolean {
 		(genre) => genre.id === 16 || genre.name.toLowerCase() === 'animation'
 	);
 	const hasJapaneseOriginalLanguage = details.originalLanguage === 'ja';
-	const hasJapaneseOrigin =
-		details.originCountry.includes('JP') ||
-		details.productionCountries.some((country) => country.iso31661 === 'JP');
+	const hasJapaneseOrigin = details.originCountry.includes('JP');
 
 	// Strict anime classification:
 	// 1) animation genre, 2) original language is Japanese, 3) Japanese origin/production
@@ -182,32 +186,70 @@ function dedupeCompanies(companies: EnrichmentCompanyInput[]): EnrichmentCompany
 	return unique;
 }
 
-function pickPrimaryStudio(
+const ANIME_STUDIO_DENYLIST_PENALTIES: Array<{ pattern: string; penalty: number }> = [
+	{ pattern: 'kodansha', penalty: 1200 },
+	{ pattern: 'dentsu', penalty: 1200 },
+	{ pattern: 'pony canyon', penalty: 900 },
+	{ pattern: 'aniplex', penalty: 900 },
+	{ pattern: 'kadokawa', penalty: 900 },
+	{ pattern: 'shueisha', penalty: 900 },
+	{ pattern: 'toho', penalty: 700 },
+	{ pattern: 'mbs', penalty: 800 },
+	{ pattern: 'nhk', penalty: 800 },
+	{ pattern: 'tokyo mx', penalty: 800 }
+];
+
+function normalizedCompanyName(name: string): string {
+	return name.trim().toLowerCase();
+}
+
+function animeStudioPenalty(company: EnrichmentCompanyInput): number {
+	const normalized = normalizedCompanyName(company.name);
+	let penalty = 0;
+	for (const entry of ANIME_STUDIO_DENYLIST_PENALTIES) {
+		if (normalized.includes(entry.pattern)) penalty += entry.penalty;
+	}
+	return penalty;
+}
+
+function toStudioCredit(company: EnrichmentCompanyInput): HeaderContributorInput {
+	return {
+		type: 'company',
+		tmdbId: company.tmdbId,
+		name: company.name,
+		role: 'studio',
+		source: 'tmdb',
+		sourceId: company.tmdbId
+	};
+}
+
+function pickStudioCandidates(
 	companies: EnrichmentCompanyInput[],
-	isAnime: boolean
-): HeaderContributorInput | null {
-	if (companies.length === 0) return null;
+	isAnime: boolean,
+	maxCount = 1
+): HeaderContributorInput[] {
+	if (companies.length === 0 || maxCount <= 0) return [];
 
 	if (isAnime) {
-		const japanese = companies.find((company) => company.originCountry === 'JP');
-		if (japanese) {
-			return {
-				type: 'company',
-				tmdbId: japanese.tmdbId,
-				name: japanese.name,
-				role: 'studio'
-			};
+		const ranked = [...companies]
+			.filter((company) => company.originCountry === 'JP')
+			.map((company, index) => ({
+				company,
+				score: 10_000 - animeStudioPenalty(company) - (company.billingOrder ?? index)
+			}))
+			.sort((left, right) => {
+				if (right.score !== left.score) return right.score - left.score;
+				return left.company.billingOrder - right.company.billingOrder;
+			})
+			.map((entry) => entry.company);
+		if (ranked.length > 0) {
+			return ranked.slice(0, maxCount).map(toStudioCredit);
 		}
 	}
 
 	const first = companies[0];
-	if (!first) return null;
-	return {
-		type: 'company',
-		tmdbId: first.tmdbId,
-		name: first.name,
-		role: 'studio'
-	};
+	if (!first) return [];
+	return [toStudioCredit(first)];
 }
 
 export function buildCompanies(details: NormalizedMediaDetails): EnrichmentCompanyInput[] {
@@ -231,12 +273,123 @@ export function dedupeCreatorCredits(
 	for (const contributor of contributors) {
 		const normalizedName = contributor.name.trim();
 		if (normalizedName.length === 0) continue;
-		const key = `${contributor.type}:${contributor.tmdbId ?? normalizedName.toLowerCase()}:${contributor.role ?? ''}`;
+		const source = contributor.source ?? 'tmdb';
+		const sourceId = contributor.sourceId ?? null;
+		const key = `${source}:${contributor.type}:${sourceId ?? 'none'}:${contributor.tmdbId ?? normalizedName.toLowerCase()}:${contributor.role ?? ''}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
-		unique.push({ ...contributor, name: normalizedName });
+		unique.push({ ...contributor, source, sourceId, name: normalizedName });
 	}
 	return unique;
+}
+
+function normalizeCreditName(name: string): string {
+	return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function creatorCreditIdentityKey(contributor: HeaderContributorInput): string {
+	const source = contributor.source ?? 'tmdb';
+	const sourceId = contributor.sourceId ?? null;
+	const normalizedName = normalizeCreditName(contributor.name);
+	return [
+		source,
+		contributor.type,
+		contributor.role ?? '',
+		sourceId ?? 'none',
+		contributor.tmdbId ?? normalizedName
+	].join(':');
+}
+
+function bestTMDBStudioByName(
+	credits: HeaderContributorInput[],
+	name: string
+): { credit: HeaderContributorInput; method: 'normalized' | 'fuzzy'; confidence: number } | null {
+	const target = normalizeCreditName(name);
+
+	for (const credit of credits) {
+		if ((credit.source ?? 'tmdb') !== 'tmdb') continue;
+		if (credit.type !== 'company') continue;
+		if (credit.role !== 'studio') continue;
+		if (credit.tmdbId === null) continue;
+		const candidate = normalizeCreditName(credit.name);
+		if (candidate === target) {
+			return { credit, method: 'normalized', confidence: 1 };
+		}
+	}
+
+	for (const credit of credits) {
+		if ((credit.source ?? 'tmdb') !== 'tmdb') continue;
+		if (credit.type !== 'company') continue;
+		if (credit.role !== 'studio') continue;
+		if (credit.tmdbId === null) continue;
+		const candidate = normalizeCreditName(credit.name);
+		if (candidate.includes(target) || target.includes(candidate)) {
+			return { credit, method: 'fuzzy', confidence: 0.8 };
+		}
+	}
+
+	return null;
+}
+
+function attachTMDBCompanyMatchToAniListStudio(
+	incoming: HeaderContributorInput,
+	existingCredits: HeaderContributorInput[]
+): HeaderContributorInput {
+	if ((incoming.source ?? 'tmdb') !== 'anilist') return incoming;
+	if (incoming.type !== 'company' || incoming.role !== 'studio') return incoming;
+	if (incoming.matchMethod === 'manual') return incoming;
+
+	const match = bestTMDBStudioByName(existingCredits, incoming.name);
+	if (!match || match.credit.tmdbId === null) {
+		return {
+			...incoming,
+			matchMethod: incoming.matchMethod ?? null,
+			matchConfidence: incoming.matchConfidence ?? null
+		};
+	}
+
+	return {
+		...incoming,
+		tmdbId: match.credit.tmdbId,
+		matchMethod: match.method,
+		matchConfidence: match.confidence
+	};
+}
+
+export function mergeCreatorCreditsForSource(
+	existing: HeaderContributorInput[] | null | undefined,
+	incoming: HeaderContributorInput[] | null | undefined,
+	source: HeaderContributorSource
+): HeaderContributorInput[] {
+	const existingList = dedupeCreatorCredits(existing ?? []);
+	const incomingList = dedupeCreatorCredits(incoming ?? []);
+	const otherSourceCredits = existingList.filter((credit) => (credit.source ?? 'tmdb') !== source);
+	const existingSourceCredits = existingList.filter(
+		(credit) => (credit.source ?? 'tmdb') === source
+	);
+	const existingSourceByIdentity = new Map(
+		existingSourceCredits.map((credit) => [creatorCreditIdentityKey(credit), credit] as const)
+	);
+
+	const preparedIncoming = incomingList
+		.map((credit) =>
+			source === 'anilist' ? attachTMDBCompanyMatchToAniListStudio(credit, existingList) : credit
+		)
+		.map((credit) => {
+			const existingCredit = existingSourceByIdentity.get(creatorCreditIdentityKey(credit));
+			if (!existingCredit || existingCredit.matchMethod !== 'manual') return credit;
+			// Preserve the full manual object for this source identity so sync refreshes
+			// don't overwrite operator-curated studio rows.
+			return { ...existingCredit };
+		});
+
+	const incomingKeys = new Set(preparedIncoming.map(creatorCreditIdentityKey));
+	const preservedManual = existingSourceCredits.filter(
+		(credit) =>
+			credit.matchMethod === 'manual' && !incomingKeys.has(creatorCreditIdentityKey(credit))
+	);
+
+	return dedupeCreatorCredits([...otherSourceCredits, ...preservedManual, ...preparedIncoming]);
 }
 
 export function buildCreatorCredits(
@@ -244,7 +397,7 @@ export function buildCreatorCredits(
 	isAnime: boolean,
 	companies: EnrichmentCompanyInput[]
 ): HeaderContributorInput[] {
-	const primaryStudio = isAnime ? pickPrimaryStudio(companies, true) : null;
+	const studioCandidates = isAnime ? pickStudioCandidates(companies, true, 3) : [];
 
 	if (details.mediaType === 'movie') {
 		const directors = dedupeCreatorCredits(
@@ -252,7 +405,9 @@ export function buildCreatorCredits(
 				type: 'person' as const,
 				tmdbId: director.id,
 				name: director.name,
-				role: 'director'
+				role: 'director',
+				source: 'tmdb' as const,
+				sourceId: director.id
 			}))
 		);
 		const directorFallback =
@@ -267,19 +422,21 @@ export function buildCreatorCredits(
 								type: 'person' as const,
 								tmdbId: null,
 								name,
-								role: 'director'
+								role: 'director',
+								source: 'tmdb' as const,
+								sourceId: null
 							}))
 					);
 
-		if (isAnime && primaryStudio) {
-			return dedupeCreatorCredits([primaryStudio, ...directorFallback]);
+		if (isAnime && studioCandidates.length > 0) {
+			return dedupeCreatorCredits([...studioCandidates, ...directorFallback]);
 		}
 
 		return directorFallback;
 	}
 
-	if (isAnime && primaryStudio) {
-		return [primaryStudio];
+	if (isAnime && studioCandidates.length > 0) {
+		return dedupeCreatorCredits(studioCandidates);
 	}
 
 	const creators = dedupeCreatorCredits(
@@ -287,7 +444,9 @@ export function buildCreatorCredits(
 			type: 'person' as const,
 			tmdbId: creator.id,
 			name: creator.name,
-			role: 'creator'
+			role: 'creator',
+			source: 'tmdb' as const,
+			sourceId: creator.id
 		}))
 	);
 	if (creators.length > 0) return creators;
@@ -301,7 +460,9 @@ export function buildCreatorCredits(
 				type: 'person' as const,
 				tmdbId: null,
 				name,
-				role: 'creator'
+				role: 'creator',
+				source: 'tmdb' as const,
+				sourceId: null
 			}))
 	);
 }
@@ -312,13 +473,21 @@ export function cloneCreatorCredits(
 		tmdbId: number | null;
 		name: string;
 		role: string | null;
+		source?: HeaderContributorSource;
+		sourceId?: number | null;
+		matchMethod?: HeaderContributorInput['matchMethod'];
+		matchConfidence?: number | null;
 	}>
 ): HeaderContributorInput[] {
 	return contributors.map((contributor) => ({
 		type: contributor.type,
 		tmdbId: contributor.tmdbId,
 		name: contributor.name,
-		role: contributor.role
+		role: contributor.role,
+		source: contributor.source ?? 'tmdb',
+		sourceId: contributor.sourceId ?? null,
+		matchMethod: contributor.matchMethod ?? null,
+		matchConfidence: contributor.matchConfidence ?? null
 	}));
 }
 
@@ -326,6 +495,19 @@ function parseDate(dateString: string | null | undefined): Date | null {
 	if (!dateString) return null;
 	const parsed = new Date(dateString);
 	return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function stableJitterMs(seed: number, windowMs: number): number {
+	// Deterministic per-title jitter to spread refreshes without random drift.
+	const s = Math.max(1, Math.floor(Math.abs(seed)));
+	const hash = (s * 1103515245 + 12345) & 0x7fffffff;
+	return windowMs <= 0 ? 0 : hash % windowMs;
+}
+
+function withPositiveJitter(now: number, ttlMs: number, seed: number): number {
+	const boundedTtl = Math.max(MINUTE_MS, ttlMs);
+	const jitterWindow = Math.min(12 * HOUR_MS, Math.floor(boundedTtl * 0.1));
+	return now + boundedTtl + stableJitterMs(seed, jitterWindow);
 }
 
 function normalizeStatus(status: string | undefined): string {
@@ -338,40 +520,96 @@ function isEndedSeries(status: string | undefined): boolean {
 }
 
 export function computeNextRefreshAt(details: NormalizedMediaDetails, now: number): number {
+	const seed = details.id;
 	if (details.mediaType === 'movie') {
 		const releaseDate = parseDate(details.releaseDate);
 		if (releaseDate === null) {
 			// Missing release dates are uncommon but possible; keep modest cadence.
-			return now + WEEK_MS;
+			return withPositiveJitter(now, WEEK_MS, seed);
 		}
 
 		const releaseTime = releaseDate.getTime();
 		const inThirtyDays = now + 30 * DAY_MS;
 		const thirtyDaysAgo = now - 30 * DAY_MS;
+		const inSevenDays = now + 7 * DAY_MS;
+		const threeDaysAgo = now - 3 * DAY_MS;
 
+		// Most volatile window: immediately before release and just after release.
+		if (
+			(releaseTime >= now && releaseTime <= inSevenDays) ||
+			(releaseTime < now && releaseTime >= threeDaysAgo)
+		) {
+			return withPositiveJitter(now, 12 * HOUR_MS, seed);
+		}
 		if (releaseTime > inThirtyDays) {
-			return now + WEEK_MS;
+			return withPositiveJitter(now, WEEK_MS, seed);
 		}
 		if (releaseTime >= thirtyDaysAgo) {
-			return now + DAY_MS;
+			return withPositiveJitter(now, DAY_MS, seed);
 		}
-		return now + 30 * DAY_MS;
+		return withPositiveJitter(now, 30 * DAY_MS, seed);
 	}
 
-	if (isEndedSeries(details.status)) {
-		return now + 30 * DAY_MS;
-	}
-
+	const normalizedStatus = normalizeStatus(details.status);
+	const statusSuggestsReturning =
+		normalizedStatus.includes('returning') ||
+		normalizedStatus.includes('planned') ||
+		normalizedStatus.includes('production');
 	const nextAiring = parseDate(details.nextEpisodeToAir?.airDate ?? null);
 	if (nextAiring !== null) {
 		const delta = nextAiring.getTime() - now;
 		if (delta <= 7 * DAY_MS) {
-			return now + DAY_MS;
+			return withPositiveJitter(now, DAY_MS, seed);
 		}
-		return now + WEEK_MS;
+		if (delta <= 30 * DAY_MS) {
+			return withPositiveJitter(now, 3 * DAY_MS, seed);
+		}
+		if (delta <= 120 * DAY_MS) {
+			return withPositiveJitter(now, 14 * DAY_MS, seed);
+		}
+		return withPositiveJitter(now, 30 * DAY_MS, seed);
 	}
 
-	return now + WEEK_MS;
+	const lastEpisodeAired = parseDate(details.lastEpisodeToAir?.airDate ?? null);
+	if (lastEpisodeAired !== null) {
+		const sinceLastEpisode = now - lastEpisodeAired.getTime();
+		if (sinceLastEpisode <= 3 * DAY_MS) {
+			return withPositiveJitter(now, DAY_MS, seed);
+		}
+		if (sinceLastEpisode <= 30 * DAY_MS) {
+			return withPositiveJitter(now, 3 * DAY_MS, seed);
+		}
+		if (sinceLastEpisode <= 90 * DAY_MS) {
+			return withPositiveJitter(now, 14 * DAY_MS, seed);
+		}
+		if (details.inProduction || statusSuggestsReturning) {
+			if (sinceLastEpisode <= 180 * DAY_MS) {
+				return withPositiveJitter(now, 30 * DAY_MS, seed);
+			}
+			return withPositiveJitter(now, 45 * DAY_MS, seed);
+		}
+	}
+
+	const lastAir = parseDate(details.lastAirDate);
+	if (isEndedSeries(details.status) && lastAir !== null) {
+		const sinceLastAir = now - lastAir.getTime();
+		if (sinceLastAir <= 60 * DAY_MS) {
+			return withPositiveJitter(now, 30 * DAY_MS, seed);
+		}
+		if (sinceLastAir <= 365 * DAY_MS) {
+			return withPositiveJitter(now, 90 * DAY_MS, seed);
+		}
+		return withPositiveJitter(now, 180 * DAY_MS, seed);
+	}
+
+	if (isEndedSeries(details.status)) {
+		return withPositiveJitter(now, 90 * DAY_MS, seed);
+	}
+
+	if (details.inProduction || statusSuggestsReturning) {
+		return withPositiveJitter(now, 30 * DAY_MS, seed);
+	}
+	return withPositiveJitter(now, 45 * DAY_MS, seed);
 }
 
 export function toStoredEpisodeSummary(
@@ -458,20 +696,123 @@ export function evaluateStoredTVDecision(
 	return evaluateStoredDecision(stored, now, hasTypeSpecificMissing, detailSchemaVersion);
 }
 
+function selectAniListStudioCredits(credits: HeaderContributorInput[]): HeaderContributorInput[] {
+	const studios = credits.filter((credit) => credit.role === 'studio' && credit.type === 'company');
+	if (studios.length === 0) return [];
+	const anilistStudios = studios.filter((credit) => (credit.source ?? 'tmdb') === 'anilist');
+	return anilistStudios;
+}
+
+function selectManualStudioCredits(credits: HeaderContributorInput[]): HeaderContributorInput[] {
+	const studios = credits.filter((credit) => credit.role === 'studio' && credit.type === 'company');
+	if (studios.length === 0) return [];
+	return studios.filter((credit) => (credit.matchMethod ?? null) === 'manual');
+}
+
+function selectAnyStudioCredits(credits: HeaderContributorInput[]): HeaderContributorInput[] {
+	return credits.filter((credit) => credit.role === 'studio' && credit.type === 'company');
+}
+
+function selectSingleFallbackStudioCredit(
+	credits: HeaderContributorInput[]
+): HeaderContributorInput[] {
+	const studios = selectAnyStudioCredits(credits);
+	return studios.length > 0 ? [studios[0]] : [];
+}
+
+export function hasAniListStudioCredits(
+	credits: HeaderContributorInput[] | null | undefined
+): boolean {
+	if (!credits || credits.length === 0) return false;
+	return credits.some(
+		(credit) =>
+			credit.type === 'company' &&
+			credit.role === 'studio' &&
+			(credit.source ?? 'tmdb') === 'anilist'
+	);
+}
+
+export function hasManualStudioCredits(
+	credits: HeaderContributorInput[] | null | undefined
+): boolean {
+	if (!credits || credits.length === 0) return false;
+	return credits.some(
+		(credit) =>
+			credit.type === 'company' &&
+			credit.role === 'studio' &&
+			(credit.matchMethod ?? null) === 'manual'
+	);
+}
+
+function selectHeaderDisplayContributors(
+	credits: HeaderContributorInput[],
+	isAnime: boolean,
+	mediaType: MediaType,
+	animeStudioStatus: AnimeStudioStatus
+): HeaderContributorInput[] {
+	const deduped = dedupeCreatorCredits(credits);
+
+	if (mediaType === 'tv') {
+		if (isAnime) {
+			const manualStudios = selectManualStudioCredits(deduped);
+			if (manualStudios.length > 0) return manualStudios;
+			if (animeStudioStatus === 'resolved') return selectAniListStudioCredits(deduped);
+			if (animeStudioStatus === 'unavailable') return selectSingleFallbackStudioCredit(deduped);
+			return [];
+		}
+		const creators = deduped.filter(
+			(credit) => credit.role === 'creator' && credit.type === 'person'
+		);
+		return creators.length > 0 ? creators : deduped;
+	}
+
+	if (isAnime) {
+		const manualStudios = selectManualStudioCredits(deduped);
+		if (manualStudios.length > 0) {
+			const directors = deduped.filter(
+				(credit) => credit.role === 'director' && credit.type === 'person'
+			);
+			const combined = dedupeCreatorCredits([...manualStudios, ...directors]);
+			return combined.length > 0 ? combined : directors;
+		}
+		const studios =
+			animeStudioStatus === 'resolved'
+				? selectAniListStudioCredits(deduped)
+				: animeStudioStatus === 'unavailable'
+					? selectSingleFallbackStudioCredit(deduped)
+					: [];
+		const directors = deduped.filter(
+			(credit) => credit.role === 'director' && credit.type === 'person'
+		);
+		const combined = dedupeCreatorCredits([...studios, ...directors]);
+		return combined.length > 0 ? combined : directors;
+	}
+
+	const directors = deduped.filter(
+		(credit) => credit.role === 'director' && credit.type === 'person'
+	);
+	return directors.length > 0 ? directors : deduped;
+}
+
 export function buildHeaderContext(
 	credits: HeaderContributorInput[] | null | undefined,
 	isAnime: boolean,
-	defaultHeading: 'Directed by' | 'Created by'
+	mediaType: MediaType,
+	animeStudioStatus: AnimeStudioStatus
 ): {
-	heading: string;
 	isAnime: boolean;
+	animeStudioStatus: AnimeStudioStatus;
 	contributors: HeaderContributorInput[];
 } {
-	const contributors = dedupeCreatorCredits(credits ?? []);
-	const hasCompanyContributor = contributors.some((contributor) => contributor.type === 'company');
-	return {
-		heading: isAnime && hasCompanyContributor ? 'Animated by' : defaultHeading,
+	const contributors = selectHeaderDisplayContributors(
+		credits ?? [],
 		isAnime,
+		mediaType,
+		animeStudioStatus
+	);
+	return {
+		isAnime,
+		animeStudioStatus,
 		contributors
 	};
 }

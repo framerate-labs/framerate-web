@@ -14,11 +14,19 @@ export type EnrichmentCompanyInput = {
 	billingOrder: number;
 };
 
+export type HeaderContributorSource = 'tmdb' | 'anilist';
+export type HeaderContributorMatchMethod = 'exact' | 'normalized' | 'fuzzy' | 'manual';
+export type AnimeStudioStatus = 'not_applicable' | 'pending' | 'resolved' | 'unavailable';
+
 export type HeaderContributorInput = {
 	type: 'person' | 'company';
 	tmdbId: number | null;
 	name: string;
 	role: string | null;
+	source?: HeaderContributorSource;
+	sourceId?: number | null;
+	matchMethod?: HeaderContributorMatchMethod | null;
+	matchConfidence?: number | null;
 };
 
 export type StoredEpisodeSummary = {
@@ -47,8 +55,6 @@ export type StoredMediaSnapshot = {
 	nextEpisodeToAir?: StoredEpisodeSummary | null;
 	posterPath?: string | null;
 	backdropPath?: string | null;
-	director?: string | null;
-	creator?: string | null;
 	creatorCredits?: HeaderContributorInput[] | null;
 };
 
@@ -86,6 +92,7 @@ export type PreparedDetailSync = {
 };
 
 export type StoredMovieDoc = NonNullable<Awaited<ReturnType<typeof getMovieBySource>>> & {
+	isAnimeSource?: 'auto' | 'manual';
 	overview?: string | null;
 	status?: string;
 	runtime?: number | null;
@@ -98,6 +105,7 @@ export type StoredMovieDoc = NonNullable<Awaited<ReturnType<typeof getMovieBySou
 };
 
 export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySource>>> & {
+	isAnimeSource?: 'auto' | 'manual';
 	overview?: string | null;
 	status?: string;
 	numberOfSeasons?: number;
@@ -137,8 +145,7 @@ export type InsertMediaArgs = {
 	detailFetchedAt: number;
 	nextRefreshAt: number;
 	isAnime: boolean;
-	director: string | null;
-	creator: string | null;
+	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
 };
 
@@ -153,7 +160,7 @@ export type MovieInsertDoc = SourceIdentifiers & {
 	refreshErrorCount: number;
 	lastRefreshErrorAt: number | null;
 	isAnime: boolean;
-	director: string | null;
+	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
 	overview: string | null;
 	status: string;
@@ -171,7 +178,7 @@ export type TVInsertDoc = SourceIdentifiers & {
 	refreshErrorCount: number;
 	lastRefreshErrorAt: number | null;
 	isAnime: boolean;
-	creator: string | null;
+	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
 	overview: string | null;
 	status: string;

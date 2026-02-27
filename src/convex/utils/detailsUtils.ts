@@ -25,7 +25,7 @@ type MovieSyncPolicyMap = {
 	status: SyncPolicy;
 	runtime: SyncPolicy;
 	isAnime: SyncPolicy;
-	director: SyncPolicy;
+	isAnimeSource: SyncPolicy;
 	creatorCredits: SyncPolicy;
 };
 
@@ -41,7 +41,7 @@ type TVSyncPolicyMap = {
 	lastEpisodeToAir: SyncPolicy;
 	nextEpisodeToAir: SyncPolicy;
 	isAnime: SyncPolicy;
-	creator: SyncPolicy;
+	isAnimeSource: SyncPolicy;
 	creatorCredits: SyncPolicy;
 };
 
@@ -104,7 +104,7 @@ export function buildMovieInsertDoc(
 		refreshErrorCount: 0,
 		lastRefreshErrorAt: null,
 		isAnime: args.isAnime,
-		director: args.director,
+		isAnimeSource: args.isAnimeSource,
 		creatorCredits: incomingCreatorCredits,
 		overview: args.overview,
 		status: args.status,
@@ -129,7 +129,7 @@ export function buildTVInsertDoc(
 		refreshErrorCount: 0,
 		lastRefreshErrorAt: null,
 		isAnime: args.isAnime,
-		creator: args.creator,
+		isAnimeSource: args.isAnimeSource,
 		creatorCredits: incomingCreatorCredits,
 		overview: args.overview,
 		status: args.status,
@@ -193,9 +193,13 @@ export function buildMoviePatch(
 	setPatchByPolicy(patch, 'status', syncPolicy.status, existing.status ?? '', args.status);
 	setPatchByPolicy(patch, 'runtime', syncPolicy.runtime, existing.runtime ?? null, args.runtime);
 	setPatchByPolicy(patch, 'isAnime', syncPolicy.isAnime, existing.isAnime, args.isAnime);
-	setPatchByPolicy(patch, 'director', syncPolicy.director, existing.director, args.director, {
-		treatUnknownAsMissing: true
-	});
+	setPatchByPolicy(
+		patch,
+		'isAnimeSource',
+		syncPolicy.isAnimeSource,
+		existing.isAnimeSource,
+		args.isAnimeSource
+	);
 
 	if (
 		shouldApplySyncPolicy(
@@ -297,9 +301,13 @@ export function buildTVPatch(
 	}
 
 	setPatchByPolicy(patch, 'isAnime', syncPolicy.isAnime, existing.isAnime, args.isAnime);
-	setPatchByPolicy(patch, 'creator', syncPolicy.creator, existing.creator, args.creator, {
-		treatUnknownAsMissing: true
-	});
+	setPatchByPolicy(
+		patch,
+		'isAnimeSource',
+		syncPolicy.isAnimeSource,
+		existing.isAnimeSource,
+		args.isAnimeSource
+	);
 
 	if (
 		shouldApplySyncPolicy(

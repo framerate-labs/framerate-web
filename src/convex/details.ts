@@ -1,4 +1,5 @@
 import type {
+	AnimeStudioStatus,
 	HeaderContributorInput,
 	StoredEpisodeSummary,
 	StoredMovieDoc,
@@ -8,17 +9,92 @@ import type { MediaSource } from './utils/mediaLookup';
 
 import { v } from 'convex/values';
 
-import { internalMutation, query } from './_generated/server';
+import { internalMutation, mutation, query } from './_generated/server';
+import { resolveAnimeHeaderCredits } from './services/animeReadService';
 import {
 	buildHeaderContext,
 	evaluateStoredMovieDecision,
-	evaluateStoredTVDecision
+	evaluateStoredTVDecision,
+	hasAniListStudioCredits,
+	hasManualStudioCredits,
+	mergeCreatorCreditsForSource,
+	sameHeaderContributors
 } from './services/detailsService';
-import { getMovieBySource, getTVShowBySource } from './utils/mediaLookup';
+import {
+	getFinalMovie,
+	getFinalTV,
+	getMovieBySource,
+	getTVShowBySource
+} from './utils/mediaLookup';
 
 const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));
 const sourceValidator = v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb'));
 const DETAIL_SCHEMA_VERSION = 1;
+const detailCreatorCreditValidator = v.object({
+	type: v.union(v.literal('person'), v.literal('company')),
+	tmdbId: v.union(v.number(), v.null()),
+	name: v.string(),
+	role: v.union(v.string(), v.null()),
+	source: v.optional(v.union(v.literal('tmdb'), v.literal('anilist'))),
+	sourceId: v.optional(v.union(v.number(), v.null())),
+	matchMethod: v.optional(
+		v.union(
+			v.literal('exact'),
+			v.literal('normalized'),
+			v.literal('fuzzy'),
+			v.literal('manual'),
+			v.null()
+		)
+	),
+	matchConfidence: v.optional(v.union(v.number(), v.null()))
+});
+
+function withDefined<T extends Record<string, unknown>>(values: T): Partial<T> {
+	return Object.fromEntries(
+		Object.entries(values).filter(([, value]) => value !== undefined)
+	) as Partial<T>;
+}
+
+function applyUnsetFields<T extends Record<string, unknown>>(
+	values: Partial<T>,
+	unsetFields: string[] | undefined
+): Partial<T> {
+	if (!unsetFields || unsetFields.length === 0) return values;
+	const next = { ...values } as Partial<T>;
+	for (const field of unsetFields) {
+		(next as Record<string, unknown>)[field] = undefined;
+	}
+	return next;
+}
+
+function animePickerSyncKey(tmdbType: 'movie' | 'tv', tmdbId: number): string {
+	return `picker:${tmdbType}:${tmdbId}`;
+}
+
+async function resolveAnimeStudioStatus(
+	ctx: any,
+	tmdbType: 'movie' | 'tv',
+	tmdbId: number,
+	creatorCredits: HeaderContributorInput[] | null | undefined,
+	isAnime: boolean
+): Promise<AnimeStudioStatus> {
+	if (!isAnime) return 'not_applicable';
+	if (hasManualStudioCredits(creatorCredits)) return 'resolved';
+	if (hasAniListStudioCredits(creatorCredits)) return 'resolved';
+
+	const queueRow = await ctx.db
+		.query('animeSyncQueue')
+		.withIndex('by_syncKey', (q: any) => q.eq('syncKey', animePickerSyncKey(tmdbType, tmdbId)))
+		.unique();
+
+	if (!queueRow) return 'pending';
+	if (queueRow.state === 'queued' || queueRow.state === 'running' || queueRow.state === 'retry') {
+		return 'pending';
+	}
+	if (queueRow.lastSuccessAt != null) return 'unavailable';
+	if (queueRow.state === 'error') return 'unavailable';
+	return 'pending';
+}
 
 // One-time migration helper: patch legacy rows so required detail fields can be enforced safely.
 export const backfillRequiredDetailFields = internalMutation({
@@ -53,7 +129,6 @@ export const backfillRequiredDetailFields = internalMutation({
 					nextRefreshAt?: number;
 					refreshErrorCount?: number;
 					lastRefreshErrorAt?: number | null;
-					director?: string | null;
 					creatorCredits?: HeaderContributorInput[];
 				} = {};
 
@@ -65,7 +140,6 @@ export const backfillRequiredDetailFields = internalMutation({
 				if (movie.nextRefreshAt === undefined) patch.nextRefreshAt = now;
 				if (movie.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
 				if (movie.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
-				if (movie.director === undefined) patch.director = null;
 				if (movie.creatorCredits === undefined) patch.creatorCredits = [];
 
 				if (Object.keys(patch).length > 0) {
@@ -107,7 +181,6 @@ export const backfillRequiredDetailFields = internalMutation({
 				nextRefreshAt?: number;
 				refreshErrorCount?: number;
 				lastRefreshErrorAt?: number | null;
-				creator?: string | null;
 				creatorCredits?: HeaderContributorInput[];
 			} = {};
 
@@ -122,7 +195,6 @@ export const backfillRequiredDetailFields = internalMutation({
 			if (tvShow.nextRefreshAt === undefined) patch.nextRefreshAt = now;
 			if (tvShow.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
 			if (tvShow.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
-			if (tvShow.creator === undefined) patch.creator = null;
 			if (tvShow.creatorCredits === undefined) patch.creatorCredits = [];
 
 			if (Object.keys(patch).length > 0) {
@@ -146,6 +218,78 @@ export const backfillRequiredDetailFields = internalMutation({
 	}
 });
 
+export const syncAnimeCreatorCreditsForTMDB = internalMutation({
+	args: {
+		tmdbType: mediaTypeValidator,
+		tmdbId: v.number()
+	},
+	handler: async (ctx, args) => {
+		if (args.tmdbType === 'movie') {
+			const movie = (await getMovieBySource(ctx, 'tmdb', args.tmdbId)) as StoredMovieDoc | null;
+			if (!movie || movie.tmdbId === undefined)
+				return { updated: false, reason: 'missing' as const };
+			if (movie.isAnime !== true) return { updated: false, reason: 'not_anime' as const };
+			const hadAniListStudioCredits = hasAniListStudioCredits(movie.creatorCredits);
+
+			const animeCredits =
+				(await resolveAnimeHeaderCredits(ctx, {
+					tmdbType: 'movie',
+					tmdbId: movie.tmdbId
+				})) ?? [];
+			if (animeCredits.length === 0) {
+				return {
+					updated: false,
+					reason: hadAniListStudioCredits
+						? ('preserved_existing_anilist' as const)
+						: ('resolver_miss' as const)
+				};
+			}
+			const mergedCreatorCredits = mergeCreatorCreditsForSource(
+				movie.creatorCredits,
+				animeCredits,
+				'anilist'
+			);
+			if (sameHeaderContributors(movie.creatorCredits ?? [], mergedCreatorCredits)) {
+				return { updated: false, reason: 'unchanged' as const };
+			}
+
+			await ctx.db.patch(movie._id, { creatorCredits: mergedCreatorCredits });
+			return { updated: true, reason: 'patched' as const };
+		}
+
+		const tvShow = (await getTVShowBySource(ctx, 'tmdb', args.tmdbId)) as StoredTVDoc | null;
+		if (!tvShow || tvShow.tmdbId === undefined)
+			return { updated: false, reason: 'missing' as const };
+		if (tvShow.isAnime !== true) return { updated: false, reason: 'not_anime' as const };
+		const hadAniListStudioCredits = hasAniListStudioCredits(tvShow.creatorCredits);
+
+		const animeCredits =
+			(await resolveAnimeHeaderCredits(ctx, {
+				tmdbType: 'tv',
+				tmdbId: tvShow.tmdbId
+			})) ?? [];
+		if (animeCredits.length === 0) {
+			return {
+				updated: false,
+				reason: hadAniListStudioCredits
+					? ('preserved_existing_anilist' as const)
+					: ('resolver_miss' as const)
+			};
+		}
+		const mergedCreatorCredits = mergeCreatorCreditsForSource(
+			tvShow.creatorCredits,
+			animeCredits,
+			'anilist'
+		);
+		if (sameHeaderContributors(tvShow.creatorCredits ?? [], mergedCreatorCredits)) {
+			return { updated: false, reason: 'unchanged' as const };
+		}
+
+		await ctx.db.patch(tvShow._id, { creatorCredits: mergedCreatorCredits });
+		return { updated: true, reason: 'patched' as const };
+	}
+});
+
 export const get = query({
 	args: {
 		mediaType: mediaTypeValidator,
@@ -155,17 +299,27 @@ export const get = query({
 	handler: async (ctx, args) => {
 		const now = Date.now();
 		if (args.mediaType === 'movie') {
-			const movie = (await getMovieBySource(
+			const movieBase = (await getMovieBySource(
 				ctx,
 				args.source as MediaSource,
 				args.externalId
 			)) as StoredMovieDoc | null;
-			if (!movie || movie.tmdbId === undefined) return null;
+			if (!movieBase || movieBase.tmdbId === undefined) return null;
+			const movie = (await getFinalMovie(ctx, movieBase)) as StoredMovieDoc;
 
+			const isAnime = movie.isAnime ?? false;
+			const animeStudioStatus = await resolveAnimeStudioStatus(
+				ctx,
+				'movie',
+				movie.tmdbId,
+				movie.creatorCredits,
+				isAnime
+			);
 			const headerContext = buildHeaderContext(
 				movie.creatorCredits,
-				movie.isAnime ?? false,
-				'Directed by'
+				isAnime,
+				'movie',
+				animeStudioStatus
 			);
 
 			const refreshDecision = evaluateStoredMovieDecision(
@@ -203,17 +357,27 @@ export const get = query({
 			};
 		}
 
-		const tvShow = (await getTVShowBySource(
+		const tvShowBase = (await getTVShowBySource(
 			ctx,
 			args.source as MediaSource,
 			args.externalId
 		)) as StoredTVDoc | null;
-		if (!tvShow || tvShow.tmdbId === undefined) return null;
+		if (!tvShowBase || tvShowBase.tmdbId === undefined) return null;
+		const tvShow = (await getFinalTV(ctx, tvShowBase)) as StoredTVDoc;
 
+		const isAnime = tvShow.isAnime ?? false;
+		const animeStudioStatus = await resolveAnimeStudioStatus(
+			ctx,
+			'tv',
+			tvShow.tmdbId,
+			tvShow.creatorCredits,
+			isAnime
+		);
 		const headerContext = buildHeaderContext(
 			tvShow.creatorCredits,
-			tvShow.isAnime ?? false,
-			'Created by'
+			isAnime,
+			'tv',
+			animeStudioStatus
 		);
 
 		const refreshDecision = evaluateStoredTVDecision(
@@ -250,5 +414,188 @@ export const get = query({
 			hardStale: refreshDecision.hardStale,
 			isStale: refreshDecision.needsRefresh
 		};
+	}
+});
+
+export const upsertMovieOverrides = mutation({
+	args: {
+		tmdbId: v.number(),
+		title: v.optional(v.string()),
+		isAnime: v.optional(v.boolean()),
+		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
+		posterPath: v.optional(v.union(v.string(), v.null())),
+		backdropPath: v.optional(v.union(v.string(), v.null())),
+		releaseDate: v.optional(v.union(v.string(), v.null())),
+		overview: v.optional(v.union(v.string(), v.null())),
+		status: v.optional(v.union(v.string(), v.null())),
+		runtime: v.optional(v.union(v.number(), v.null())),
+		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
+		unsetFields: v.optional(
+			v.array(
+				v.union(
+					v.literal('title'),
+					v.literal('isAnime'),
+					v.literal('isAnimeSource'),
+					v.literal('posterPath'),
+					v.literal('backdropPath'),
+					v.literal('releaseDate'),
+					v.literal('overview'),
+					v.literal('status'),
+					v.literal('runtime'),
+					v.literal('creatorCredits')
+				)
+			)
+		)
+	},
+	handler: async (ctx, args) => {
+		const rows = await ctx.db
+			.query('movieOverrides')
+			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
+			.collect();
+		const [existing, ...dups] = rows;
+		for (const dup of dups) await ctx.db.delete(dup._id);
+		const payload = applyUnsetFields(
+			withDefined({
+				title: args.title,
+				isAnime: args.isAnime,
+				isAnimeSource: args.isAnimeSource,
+				posterPath: args.posterPath,
+				backdropPath: args.backdropPath,
+				releaseDate: args.releaseDate,
+				overview: args.overview,
+				status: args.status,
+				runtime: args.runtime,
+				creatorCredits: args.creatorCredits
+			}),
+			args.unsetFields
+		);
+		const updatedAt = Date.now();
+		if (existing) {
+			await ctx.db.patch(existing._id, { ...payload, updatedAt });
+			return { ok: true, rowId: existing._id };
+		}
+		const rowId = await ctx.db.insert('movieOverrides', {
+			tmdbId: args.tmdbId,
+			...payload,
+			updatedAt
+		});
+		return { ok: true, rowId };
+	}
+});
+
+export const clearMovieOverrides = mutation({
+	args: { tmdbId: v.number() },
+	handler: async (ctx, args) => {
+		const rows = await ctx.db
+			.query('movieOverrides')
+			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
+			.collect();
+		for (const row of rows) await ctx.db.delete(row._id);
+		return { ok: true, deleted: rows.length };
+	}
+});
+
+export const upsertTVOverrides = mutation({
+	args: {
+		tmdbId: v.number(),
+		title: v.optional(v.string()),
+		isAnime: v.optional(v.boolean()),
+		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
+		posterPath: v.optional(v.union(v.string(), v.null())),
+		backdropPath: v.optional(v.union(v.string(), v.null())),
+		releaseDate: v.optional(v.union(v.string(), v.null())),
+		overview: v.optional(v.union(v.string(), v.null())),
+		status: v.optional(v.union(v.string(), v.null())),
+		numberOfSeasons: v.optional(v.union(v.number(), v.null())),
+		lastAirDate: v.optional(v.union(v.string(), v.null())),
+		lastEpisodeToAir: v.optional(
+			v.union(
+				v.object({
+					airDate: v.union(v.string(), v.null()),
+					seasonNumber: v.number(),
+					episodeNumber: v.number()
+				}),
+				v.null()
+			)
+		),
+		nextEpisodeToAir: v.optional(
+			v.union(
+				v.object({
+					airDate: v.union(v.string(), v.null()),
+					seasonNumber: v.number(),
+					episodeNumber: v.number()
+				}),
+				v.null()
+			)
+		),
+		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
+		unsetFields: v.optional(
+			v.array(
+				v.union(
+					v.literal('title'),
+					v.literal('isAnime'),
+					v.literal('isAnimeSource'),
+					v.literal('posterPath'),
+					v.literal('backdropPath'),
+					v.literal('releaseDate'),
+					v.literal('overview'),
+					v.literal('status'),
+					v.literal('numberOfSeasons'),
+					v.literal('lastAirDate'),
+					v.literal('lastEpisodeToAir'),
+					v.literal('nextEpisodeToAir'),
+					v.literal('creatorCredits')
+				)
+			)
+		)
+	},
+	handler: async (ctx, args) => {
+		const rows = await ctx.db
+			.query('tvOverrides')
+			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
+			.collect();
+		const [existing, ...dups] = rows;
+		for (const dup of dups) await ctx.db.delete(dup._id);
+		const payload = applyUnsetFields(
+			withDefined({
+				title: args.title,
+				isAnime: args.isAnime,
+				isAnimeSource: args.isAnimeSource,
+				posterPath: args.posterPath,
+				backdropPath: args.backdropPath,
+				releaseDate: args.releaseDate,
+				overview: args.overview,
+				status: args.status,
+				numberOfSeasons: args.numberOfSeasons,
+				lastAirDate: args.lastAirDate,
+				lastEpisodeToAir: args.lastEpisodeToAir,
+				nextEpisodeToAir: args.nextEpisodeToAir,
+				creatorCredits: args.creatorCredits
+			}),
+			args.unsetFields
+		);
+		const updatedAt = Date.now();
+		if (existing) {
+			await ctx.db.patch(existing._id, { ...payload, updatedAt });
+			return { ok: true, rowId: existing._id };
+		}
+		const rowId = await ctx.db.insert('tvOverrides', {
+			tmdbId: args.tmdbId,
+			...payload,
+			updatedAt
+		});
+		return { ok: true, rowId };
+	}
+});
+
+export const clearTVOverrides = mutation({
+	args: { tmdbId: v.number() },
+	handler: async (ctx, args) => {
+		const rows = await ctx.db
+			.query('tvOverrides')
+			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
+			.collect();
+		for (const row of rows) await ctx.db.delete(row._id);
+		return { ok: true, deleted: rows.length };
 	}
 });

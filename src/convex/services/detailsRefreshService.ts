@@ -240,8 +240,7 @@ export async function runRefreshIfStale(
 			detailFetchedAt: refreshedAt,
 			nextRefreshAt,
 			isAnime: prepared.isAnime,
-			director: prepared.details.mediaType === 'movie' ? prepared.details.director : null,
-			creator: prepared.details.mediaType === 'tv' ? prepared.details.creator : null,
+			isAnimeSource: 'auto',
 			creatorCredits: prepared.creatorCredits
 		});
 
