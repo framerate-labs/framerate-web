@@ -91,6 +91,8 @@ function buildAutoDisplaySeasonRowsFromTMDBSource(
 	status: DisplaySeasonStatus;
 	hidden?: boolean;
 	sources: Array<{
+		sourceKey: string;
+		sequence: number;
 		tmdbSeasonNumber: number;
 		tmdbEpisodeStart: number | null;
 		tmdbEpisodeEnd: number | null;
@@ -141,6 +143,8 @@ function buildAutoDisplaySeasonRowsFromTMDBSource(
 		status: DisplaySeasonStatus;
 		hidden?: boolean;
 		sources: Array<{
+			sourceKey: string;
+			sequence: number;
 			tmdbSeasonNumber: number;
 			tmdbEpisodeStart: number | null;
 			tmdbEpisodeEnd: number | null;
@@ -179,6 +183,8 @@ function buildAutoDisplaySeasonRowsFromTMDBSource(
 			status: autoStatus,
 			sources: [
 				{
+					sourceKey: `tmdb:s${season.seasonNumber}:all`,
+					sequence: 1,
 					tmdbSeasonNumber: season.seasonNumber,
 					tmdbEpisodeStart:
 						autoStatus === 'closed' && canBoundSeason ? episodeBounds!.minEpisodeNumber : null,
@@ -199,6 +205,8 @@ function buildAutoDisplaySeasonRowsFromTMDBSource(
 			status: null,
 			sources: [
 				{
+					sourceKey: 'tmdb:s0:all',
+					sequence: 1,
 					tmdbSeasonNumber: 0,
 					tmdbEpisodeStart: null,
 					tmdbEpisodeEnd: null,

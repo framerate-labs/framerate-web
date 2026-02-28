@@ -520,6 +520,11 @@ export default defineSchema({
 		locked: v.optional(v.boolean()),
 		sources: v.array(
 			v.object({
+				// Stable identifier for this source block within a display-season row.
+				sourceKey: v.string(),
+				// Explicit in-row ordering for episode rendering when multiple source
+				// ranges are spliced into the same display season.
+				sequence: v.float64(),
 				tmdbSeasonNumber: v.number(),
 				tmdbEpisodeStart: v.union(v.float64(), v.null()),
 				tmdbEpisodeEnd: v.union(v.float64(), v.null()),

@@ -5,32 +5,43 @@ import { isSoftClosedLikeStatus } from '../../utils/anime/domain';
 
 export function normalizeDisplaySeasonSources(
 	sources: Array<{
+		sourceKey: string;
+		sequence: number;
 		tmdbSeasonNumber: number;
 		tmdbEpisodeStart?: number | null;
 		tmdbEpisodeEnd?: number | null;
 		displayAsRegularEpisode?: boolean;
 	}>
 ): Array<{
+	sourceKey: string;
+	sequence: number;
 	tmdbSeasonNumber: number;
 	tmdbEpisodeStart: number | null;
 	tmdbEpisodeEnd: number | null;
 	displayAsRegularEpisode: boolean;
 }> {
+	// Canonical source-block normalization:
+	// - sourceKey identifies a block within a row and should stay stable across edits.
+	// - sequence defines rendering order when a row stitches multiple TMDB ranges.
 	return [...sources]
 		.map((source) => ({
+			sourceKey: source.sourceKey.trim(),
+			sequence: source.sequence,
 			tmdbSeasonNumber: source.tmdbSeasonNumber,
 			tmdbEpisodeStart: source.tmdbEpisodeStart ?? null,
 			tmdbEpisodeEnd: source.tmdbEpisodeEnd ?? null,
 			displayAsRegularEpisode: source.displayAsRegularEpisode === true
 		}))
 		.sort((a, b) => {
+			if (a.sequence !== b.sequence) return a.sequence - b.sequence;
 			if (a.tmdbSeasonNumber !== b.tmdbSeasonNumber) return a.tmdbSeasonNumber - b.tmdbSeasonNumber;
 			const aStart = a.tmdbEpisodeStart ?? Number.MIN_SAFE_INTEGER;
 			const bStart = b.tmdbEpisodeStart ?? Number.MIN_SAFE_INTEGER;
 			if (aStart !== bStart) return aStart - bStart;
 			const aEnd = a.tmdbEpisodeEnd ?? Number.MAX_SAFE_INTEGER;
 			const bEnd = b.tmdbEpisodeEnd ?? Number.MAX_SAFE_INTEGER;
-			return aEnd - bEnd;
+			if (aEnd !== bEnd) return aEnd - bEnd;
+			return a.sourceKey.localeCompare(b.sourceKey);
 		});
 }
 
@@ -41,6 +52,8 @@ export function validateDisplaySeasonPlanRows(
 		seasonOrdinal?: number | null;
 		status?: DisplaySeasonStatus;
 		sources: Array<{
+			sourceKey: string;
+			sequence: number;
 			tmdbSeasonNumber: number;
 			tmdbEpisodeStart: number | null;
 			tmdbEpisodeEnd: number | null;
@@ -72,7 +85,35 @@ export function validateDisplaySeasonPlanRows(
 	for (const row of rows) {
 		if (!row.rowKey.trim()) throw new Error('Invalid display-season plan: rowKey cannot be empty');
 		const status = row.status ?? null;
+		const sourceKeys = new Set<string>();
+		const sourceSequences = new Set<number>();
 		for (const source of row.sources) {
+			const sourceKey = source.sourceKey.trim();
+			if (!sourceKey) {
+				throw new Error(`Invalid display-season plan: ${row.rowKey} has an empty sourceKey`);
+			}
+			if (sourceKeys.has(sourceKey)) {
+				throw new Error(
+					`Invalid display-season plan: duplicate sourceKey ${sourceKey} in row ${row.rowKey}`
+				);
+			}
+			sourceKeys.add(sourceKey);
+			if (!Number.isFinite(source.sequence) || !Number.isInteger(source.sequence)) {
+				throw new Error(
+					`Invalid display-season plan: ${row.rowKey} has non-integer sequence for source ${sourceKey}`
+				);
+			}
+			if (sourceSequences.has(source.sequence)) {
+				throw new Error(
+					`Invalid display-season plan: duplicate source sequence ${source.sequence} in row ${row.rowKey}`
+				);
+			}
+			sourceSequences.add(source.sequence);
+			if (source.tmdbSeasonNumber !== 0 && source.displayAsRegularEpisode === true) {
+				throw new Error(
+					`Invalid display-season plan: ${row.rowKey} source ${sourceKey} sets displayAsRegularEpisode on non-special season ${source.tmdbSeasonNumber}`
+				);
+			}
 			const start = source.tmdbEpisodeStart ?? 1;
 			const end = source.tmdbEpisodeEnd ?? null;
 			if (end != null && end < start) {
@@ -113,6 +154,8 @@ export function normalizeDisplaySeasonRowsForWrite<
 		hidden?: boolean;
 		locked?: boolean;
 		sources: Array<{
+			sourceKey: string;
+			sequence: number;
 			tmdbSeasonNumber: number;
 			tmdbEpisodeStart?: number | null;
 			tmdbEpisodeEnd?: number | null;

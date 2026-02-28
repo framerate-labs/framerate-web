@@ -1040,6 +1040,10 @@ export const replaceAnimeDisplaySeasonsAuto = internalMutation({
 				hidden: v.optional(v.boolean()),
 				sources: v.array(
 					v.object({
+						// Stable source-block identifier inside a row.
+						sourceKey: v.string(),
+						// Explicit in-row source ordering (lower renders first).
+						sequence: v.number(),
 						tmdbSeasonNumber: v.number(),
 						tmdbEpisodeStart: v.union(v.number(), v.null()),
 						tmdbEpisodeEnd: v.union(v.number(), v.null()),
@@ -1109,6 +1113,8 @@ export const replaceAnimeDisplaySeasonsAuto = internalMutation({
 				sourceMode: 'auto',
 				locked: false,
 				sources: row.sources.map((source) => ({
+					sourceKey: source.sourceKey,
+					sequence: source.sequence,
 					tmdbSeasonNumber: source.tmdbSeasonNumber,
 					tmdbEpisodeStart: source.tmdbEpisodeStart ?? null,
 					tmdbEpisodeEnd: source.tmdbEpisodeEnd ?? null,

@@ -50,6 +50,10 @@ import { getFinalTV } from './utils/mediaLookup';
 export const seasonSourceValidator = v.object({
 	tmdbType: v.string(),
 	tmdbId: v.number(),
+	// Stable identifier for a source block within a season row.
+	sourceKey: v.string(),
+	// Explicit in-row source order. Lower sequence values render first.
+	sequence: v.number(),
 	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null())),
 	tmdbSeasonName: v.optional(v.union(v.string(), v.null())),
 	tmdbEpisodeStart: v.optional(v.union(v.number(), v.null())),
@@ -87,9 +91,15 @@ type AnimeDisplaySeasonRow = Doc<'animeDisplaySeasons'>;
 type AnimeTitleOverrideRow = Doc<'animeTitleOverrides'>;
 
 const displaySeasonSourceInputValidator = v.object({
+	// Stable source-block identifier within a season row.
+	sourceKey: v.string(),
+	// Explicit ordering of source blocks inside a season row. Lower values render first.
+	sequence: v.number(),
 	tmdbSeasonNumber: v.number(),
 	tmdbEpisodeStart: v.union(v.number(), v.null()),
 	tmdbEpisodeEnd: v.union(v.number(), v.null()),
+	// Applies only to TMDB season 0 (specials). When true, those episodes are
+	// treated as regular episodes (E#) instead of SP# labels.
 	displayAsRegularEpisode: v.optional(v.boolean())
 });
 
@@ -552,19 +562,22 @@ export const reconcileAutoDisplaySeasonBoundsFromEpisodeCache = internalMutation
 
 			let changed = false;
 			let nextStatus = (row.status ?? null) as DisplaySeasonStatus;
+			const normalizedSources = normalizeDisplaySeasonSources(
+				row.sources as AnimeDisplaySeasonRow['sources']
+			);
 			if (
 				nextStatus !== 'closed' &&
 				row.seasonOrdinal != null &&
 				latestMainOrdinal != null &&
 				(boundsBySeason.get(row.seasonOrdinal) != null ||
-					row.sources.some((source) => boundsBySeason.get(source.tmdbSeasonNumber) != null))
+					normalizedSources.some((source) => boundsBySeason.get(source.tmdbSeasonNumber) != null))
 			) {
 				if (row.seasonOrdinal < latestMainOrdinal || isEndedSeries) {
 					nextStatus = 'closed';
 					changed = true;
 				}
 			}
-			const nextSources = row.sources.map((source) => {
+			const nextSources = normalizedSources.map((source) => {
 				const bounds = boundsBySeason.get(source.tmdbSeasonNumber);
 				if (!bounds) return source;
 				const nextStart = bounds.minEpisodeNumber;
@@ -684,6 +697,8 @@ export const replaceDisplaySeasonPlan = internalMutation({
 				sourceMode: 'manual',
 				locked: row.locked ?? false,
 				sources: row.sources.map((source) => ({
+					sourceKey: source.sourceKey,
+					sequence: source.sequence,
 					tmdbSeasonNumber: source.tmdbSeasonNumber,
 					tmdbEpisodeStart: source.tmdbEpisodeStart ?? null,
 					tmdbEpisodeEnd: source.tmdbEpisodeEnd ?? null,
@@ -777,6 +792,8 @@ export const updateAnimeSeasons: ReturnType<typeof action> = action({
 				hidden?: boolean;
 				locked?: boolean;
 				sources: Array<{
+					sourceKey: string;
+					sequence: number;
 					tmdbSeasonNumber: number;
 					tmdbEpisodeStart?: number | null;
 					tmdbEpisodeEnd?: number | null;
@@ -804,6 +821,8 @@ export const updateAnimeSeasons: ReturnType<typeof action> = action({
 			hidden: boolean;
 			locked: boolean;
 			sources: Array<{
+				sourceKey: string;
+				sequence: number;
 				tmdbSeasonNumber: number;
 				tmdbEpisodeStart: number | null;
 				tmdbEpisodeEnd: number | null;
@@ -821,6 +840,8 @@ export const updateAnimeSeasons: ReturnType<typeof action> = action({
 			hidden: row.hidden ?? false,
 			locked: row.locked ?? false,
 			sources: row.sources.map((source) => ({
+				sourceKey: source.sourceKey.trim(),
+				sequence: source.sequence,
 				tmdbSeasonNumber: source.tmdbSeasonNumber,
 				tmdbEpisodeStart: source.tmdbEpisodeStart ?? null,
 				tmdbEpisodeEnd: source.tmdbEpisodeEnd ?? null,
@@ -861,6 +882,8 @@ export const updateAnimeSeasons: ReturnType<typeof action> = action({
 				hidden: row.hidden ?? false,
 				locked: row.locked ?? false,
 				sources: row.sources.map((source) => ({
+					sourceKey: source.sourceKey.trim(),
+					sequence: source.sequence,
 					tmdbSeasonNumber: source.tmdbSeasonNumber,
 					tmdbEpisodeStart: source.tmdbEpisodeStart ?? null,
 					tmdbEpisodeEnd: source.tmdbEpisodeEnd ?? null,
@@ -1256,6 +1279,8 @@ export const autoSoftCloseAnimeSeasonsForTMDB = internalMutation({
 			await ctx.db.patch(row._id, {
 				status: 'auto_soft_closed',
 				sources: cappedSources.map((source) => ({
+					sourceKey: source.sourceKey,
+					sequence: source.sequence,
 					tmdbSeasonNumber: source.tmdbSeasonNumber,
 					tmdbEpisodeStart: source.tmdbEpisodeStart ?? null,
 					tmdbEpisodeEnd: source.tmdbEpisodeEnd ?? null,
@@ -1421,6 +1446,8 @@ export const autoCreateNextAnimeSeasonForTMDB = internalMutation({
 			status: (row.status ?? null) as DisplaySeasonStatus,
 			sources: normalizeDisplaySeasonSources(row.sources as AnimeDisplaySeasonRow['sources']).map(
 				(source) => ({
+					sourceKey: source.sourceKey,
+					sequence: source.sequence,
 					tmdbSeasonNumber: source.tmdbSeasonNumber,
 					tmdbEpisodeStart: source.tmdbEpisodeStart,
 					tmdbEpisodeEnd: source.tmdbEpisodeEnd,
@@ -1434,6 +1461,8 @@ export const autoCreateNextAnimeSeasonForTMDB = internalMutation({
 			status: 'open',
 			sources: [
 				{
+					sourceKey: `${rowKey}:source:1`,
+					sequence: 1,
 					tmdbSeasonNumber: candidate.tmdbSeasonNumber,
 					tmdbEpisodeStart: candidate.tmdbEpisodeNumber,
 					tmdbEpisodeEnd: null,
@@ -1458,6 +1487,8 @@ export const autoCreateNextAnimeSeasonForTMDB = internalMutation({
 			locked: false,
 			sources: [
 				{
+					sourceKey: `${rowKey}:source:1`,
+					sequence: 1,
 					tmdbSeasonNumber: candidate.tmdbSeasonNumber,
 					tmdbEpisodeStart: candidate.tmdbEpisodeNumber,
 					tmdbEpisodeEnd: null,
@@ -1515,6 +1546,8 @@ export const getAnimeSeasons = query({
 				).map((source) => ({
 					tmdbType: 'tv',
 					tmdbId: args.tmdbId,
+					sourceKey: source.sourceKey,
+					sequence: source.sequence,
 					tmdbSeasonNumber: source.tmdbSeasonNumber,
 					tmdbSeasonName: row.label,
 					tmdbEpisodeStart: source.tmdbEpisodeStart,
@@ -1559,6 +1592,8 @@ export const getAnimeSeasons = query({
 							: {
 									tmdbType: 'tv',
 									tmdbId: args.tmdbId,
+									sourceKey: sources[0].sourceKey,
+									sequence: sources[0].sequence,
 									tmdbSeasonNumber: sources[0].tmdbSeasonNumber ?? null,
 									tmdbSeasonName: row.label,
 									tmdbEpisodeStart: sources[0].tmdbEpisodeStart ?? null,
@@ -1588,10 +1623,7 @@ export const getAnimeSeasons = query({
 		return {
 			seasons,
 			displaySeasonCount: explicitDisplaySeasonCount ?? computedDisplaySeasonCount,
-			selectedSeason,
-			// Backward-compatible aliases.
-			seasonPicker: seasons,
-			selected: selectedSeason
+			selectedSeason
 		};
 	}
 });

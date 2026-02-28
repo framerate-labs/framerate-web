@@ -108,6 +108,8 @@ async function getAnimeSeasonReportForTMDBHandler(
 		status: row.status ?? null,
 		sources: normalizeDisplaySeasonSources(
 			row.sources as Array<{
+				sourceKey: string;
+				sequence: number;
 				tmdbSeasonNumber: number;
 				tmdbEpisodeStart?: number | null;
 				tmdbEpisodeEnd?: number | null;

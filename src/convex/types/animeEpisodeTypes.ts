@@ -29,6 +29,8 @@ export type DisplaySeasonStatus = 'open' | 'soft_closed' | 'auto_soft_closed' | 
 export type SeasonSourceInput = {
 	tmdbType: string;
 	tmdbId: number;
+	sourceKey: string;
+	sequence: number;
 	tmdbSeasonNumber?: number | null;
 	tmdbEpisodeStart?: number | null;
 	tmdbEpisodeEnd?: number | null;

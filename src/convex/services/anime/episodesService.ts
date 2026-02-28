@@ -62,6 +62,9 @@ export async function fetchEpisodesForSeasonSources(
 		const sliced = sliceSeasonEpisodesForSource(seasonEpisodes, source);
 
 		for (const episode of sliced) {
+			// This flag only changes handling for TMDB season 0 sources:
+			// - false: keep special labeling (SP1, SP2, ...), no regular E# number
+			// - true: fold specials into the regular E# numbering stream
 			const treatSpecialAsRegular = seasonNumber === 0 && source.displayAsRegularEpisode === true;
 			if (seasonNumber === 0 && !treatSpecialAsRegular) {
 				results.push({
@@ -118,6 +121,8 @@ async function countRenderedNonSpecialEpisodesForSeasonSources(
 		if (source.tmdbType !== 'tv') continue;
 		const seasonNumber = source.tmdbSeasonNumber ?? null;
 		if (seasonNumber == null) continue;
+		// Specials contribute to continuous numbering only when explicitly folded into
+		// regular episodes via displayAsRegularEpisode.
 		if (seasonNumber == 0 && source.displayAsRegularEpisode !== true) continue;
 
 		const cacheKey = `${source.tmdbId}:${seasonNumber}`;

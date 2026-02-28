@@ -77,15 +77,22 @@ export function sliceSeasonEpisodesForSource(
 export function normalizeSeasonSourcesForEpisodes(
 	sources: SeasonSourceInput[]
 ): SeasonSourceInput[] {
+	// Canonical ordering for deterministic rendering and cache access.
+	// sequence controls in-row source placement (lower renders first).
 	return sources
 		.filter((source) => source.tmdbType === 'tv')
 		.sort((a, b) => {
+			if (a.sequence !== b.sequence) return a.sequence - b.sequence;
 			const as = a.tmdbSeasonNumber ?? Number.MAX_SAFE_INTEGER;
 			const bs = b.tmdbSeasonNumber ?? Number.MAX_SAFE_INTEGER;
 			if (as !== bs) return as - bs;
 			const ae = a.tmdbEpisodeStart ?? Number.MAX_SAFE_INTEGER;
 			const be = b.tmdbEpisodeStart ?? Number.MAX_SAFE_INTEGER;
 			if (ae !== be) return ae - be;
+			const aEnd = a.tmdbEpisodeEnd ?? Number.MAX_SAFE_INTEGER;
+			const bEnd = b.tmdbEpisodeEnd ?? Number.MAX_SAFE_INTEGER;
+			if (aEnd !== bEnd) return aEnd - bEnd;
+			if (a.sourceKey !== b.sourceKey) return a.sourceKey.localeCompare(b.sourceKey);
 			return a.tmdbId - b.tmdbId;
 		});
 }
