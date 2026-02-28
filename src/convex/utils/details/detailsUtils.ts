@@ -8,13 +8,9 @@ import type {
 	SyncPolicy,
 	TVInsertDoc,
 	TVPatch
-} from '../types/detailsType';
+} from '../../types/detailsType';
 
-import {
-	sameEpisodeSummary,
-	sameHeaderContributors,
-	shouldApplySyncPolicy
-} from '../services/detailsService';
+import { sameEpisodeSummary, sameHeaderContributors, shouldApplySyncPolicy } from './syncPolicy';
 
 type MovieSyncPolicyMap = {
 	title: SyncPolicy;
@@ -76,15 +72,8 @@ function setPatchByPolicy<
 	K extends keyof TPatch,
 	Current,
 	Incoming
->(
-	patch: TPatch,
-	key: K,
-	policy: SyncPolicy,
-	currentValue: Current,
-	incomingValue: Incoming,
-	options?: { treatUnknownAsMissing?: boolean }
-): void {
-	if (shouldApplySyncPolicy(policy, currentValue, incomingValue, options)) {
+>(patch: TPatch, key: K, policy: SyncPolicy, currentValue: Current, incomingValue: Incoming): void {
+	if (shouldApplySyncPolicy(policy, currentValue, incomingValue)) {
 		patch[key] = incomingValue as TPatch[K];
 	}
 }

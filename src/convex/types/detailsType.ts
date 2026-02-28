@@ -94,10 +94,10 @@ export type PreparedDetailSync = {
 export type StoredMovieDoc = NonNullable<Awaited<ReturnType<typeof getMovieBySource>>> & {
 	isAnimeSource?: 'auto' | 'manual';
 	overview?: string | null;
-	status?: string;
+	status?: string | null;
 	runtime?: number | null;
 	detailSchemaVersion?: number;
-	detailFetchedAt?: number;
+	detailFetchedAt?: number | null;
 	nextRefreshAt?: number;
 	refreshErrorCount?: number;
 	lastRefreshErrorAt?: number | null;
@@ -107,13 +107,13 @@ export type StoredMovieDoc = NonNullable<Awaited<ReturnType<typeof getMovieBySou
 export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySource>>> & {
 	isAnimeSource?: 'auto' | 'manual';
 	overview?: string | null;
-	status?: string;
-	numberOfSeasons?: number;
+	status?: string | null;
+	numberOfSeasons?: number | null;
 	lastAirDate?: string | null;
 	lastEpisodeToAir?: StoredEpisodeSummary | null;
 	nextEpisodeToAir?: StoredEpisodeSummary | null;
 	detailSchemaVersion?: number;
-	detailFetchedAt?: number;
+	detailFetchedAt?: number | null;
 	nextRefreshAt?: number;
 	refreshErrorCount?: number;
 	lastRefreshErrorAt?: number | null;

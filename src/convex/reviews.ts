@@ -45,7 +45,14 @@ async function requireIdentity(ctx: QueryCtx | MutationCtx) {
 }
 
 async function resolveMediaFromArgs(ctx: QueryCtx | MutationCtx, args: MediaLookupArgs) {
-	return await resolveMedia(ctx, args.mediaType, args.source, args.externalId);
+	return resolveMedia(ctx, args.mediaType, args.source, args.externalId);
+}
+
+async function resolveRatingsFromArgs(ctx: QueryCtx, args: MediaLookupArgs) {
+	const resolved = await resolveMediaFromArgs(ctx, args);
+	if (!resolved) return null;
+	const ratings = await getRatingsForMedia(ctx, resolved);
+	return { resolved, ratings };
 }
 
 /**
@@ -90,7 +97,7 @@ export const getAll = query({
 			getUserTVReviews(ctx, identity.subject)
 		]);
 
-		const movieData = await Promise.all(
+		const movieDataPromise = Promise.all(
 			movieReviews.map(async (review) => {
 				const movieBase = await ctx.db.get(review.movieId);
 				const movie = movieBase ? await getFinalMovie(ctx, movieBase) : null;
@@ -105,7 +112,7 @@ export const getAll = query({
 			})
 		);
 
-		const tvData = await Promise.all(
+		const tvDataPromise = Promise.all(
 			tvReviews.map(async (review) => {
 				const tvShowBase = await ctx.db.get(review.tvShowId);
 				const tvShow = tvShowBase ? await getFinalTV(ctx, tvShowBase) : null;
@@ -119,6 +126,7 @@ export const getAll = query({
 				});
 			})
 		);
+		const [movieData, tvData] = await Promise.all([movieDataPromise, tvDataPromise]);
 
 		return [...movieData, ...tvData].sort((a, b) => b.createdAt - a.createdAt);
 	}
@@ -134,24 +142,23 @@ export const getAverage = query({
 		externalId: v.union(v.number(), v.string())
 	},
 	handler: async (ctx, args) => {
-		const resolved = await resolveMediaFromArgs(ctx, {
+		const ratingsData = await resolveRatingsFromArgs(ctx, {
 			mediaType: args.mediaType,
 			source: args.source,
 			externalId: args.externalId
 		});
-		if (!resolved) {
+		if (!ratingsData) {
 			return { avgRating: null, reviewCount: 0 };
 		}
 
-		const reviews = await getRatingsForMedia(ctx, resolved);
-		const avgRating = computeAverageRating(reviews);
+		const avgRating = computeAverageRating(ratingsData.ratings);
 		if (avgRating === null) {
 			return { avgRating: null, reviewCount: 0 };
 		}
 
 		return {
 			avgRating,
-			reviewCount: reviews.length
+			reviewCount: ratingsData.ratings.length
 		};
 	}
 });
@@ -166,15 +173,14 @@ export const getDistribution = query({
 		externalId: v.union(v.number(), v.string())
 	},
 	handler: async (ctx, args) => {
-		const resolved = await resolveMediaFromArgs(ctx, {
+		const ratingsData = await resolveRatingsFromArgs(ctx, {
 			mediaType: args.mediaType,
 			source: args.source,
 			externalId: args.externalId
 		});
-		if (!resolved) return emptyRatingDistribution();
+		if (!ratingsData) return emptyRatingDistribution();
 
-		const reviews = await getRatingsForMedia(ctx, resolved);
-		return computeRatingDistribution(reviews);
+		return computeRatingDistribution(ratingsData.ratings);
 	}
 });
 
@@ -277,6 +283,6 @@ export const deleteReview = mutation({
 		});
 		if (!resolved) return false;
 
-		return await deleteUserReviewForMedia(ctx, identity.subject, resolved);
+		return deleteUserReviewForMedia(ctx, identity.subject, resolved);
 	}
 });

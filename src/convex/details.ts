@@ -1,25 +1,28 @@
 import type {
-	AnimeStudioStatus,
 	HeaderContributorInput,
 	StoredEpisodeSummary,
 	StoredMovieDoc,
 	StoredTVDoc
 } from './types/detailsType';
-import type { MediaSource } from './utils/mediaLookup';
 
 import { v } from 'convex/values';
 
 import { internalMutation, mutation, query } from './_generated/server';
 import { resolveAnimeHeaderCredits } from './services/animeReadService';
+import { resolveAnimeStudioStatus } from './utils/details/animeStudioStatus';
+import { mergeCreatorCreditsForSource } from './utils/details/creatorCredits';
+import { buildHeaderContext, hasAniListStudioCredits } from './utils/details/headerContext';
 import {
-	buildHeaderContext,
+	clearMovieOverridesByTMDBId,
+	clearTVOverridesByTMDBId,
+	getCanonicalMovieOverrideAndCleanup,
+	getCanonicalTVOverrideAndCleanup
+} from './utils/details/overrideRows';
+import {
 	evaluateStoredMovieDecision,
-	evaluateStoredTVDecision,
-	hasAniListStudioCredits,
-	hasManualStudioCredits,
-	mergeCreatorCreditsForSource,
-	sameHeaderContributors
-} from './services/detailsService';
+	evaluateStoredTVDecision
+} from './utils/details/refreshPolicy';
+import { sameHeaderContributors } from './utils/details/syncPolicy';
 import {
 	getFinalMovie,
 	getFinalTV,
@@ -65,35 +68,6 @@ function applyUnsetFields<T extends Record<string, unknown>>(
 		(next as Record<string, unknown>)[field] = undefined;
 	}
 	return next;
-}
-
-function animePickerSyncKey(tmdbType: 'movie' | 'tv', tmdbId: number): string {
-	return `picker:${tmdbType}:${tmdbId}`;
-}
-
-async function resolveAnimeStudioStatus(
-	ctx: any,
-	tmdbType: 'movie' | 'tv',
-	tmdbId: number,
-	creatorCredits: HeaderContributorInput[] | null | undefined,
-	isAnime: boolean
-): Promise<AnimeStudioStatus> {
-	if (!isAnime) return 'not_applicable';
-	if (hasManualStudioCredits(creatorCredits)) return 'resolved';
-	if (hasAniListStudioCredits(creatorCredits)) return 'resolved';
-
-	const queueRow = await ctx.db
-		.query('animeSyncQueue')
-		.withIndex('by_syncKey', (q: any) => q.eq('syncKey', animePickerSyncKey(tmdbType, tmdbId)))
-		.unique();
-
-	if (!queueRow) return 'pending';
-	if (queueRow.state === 'queued' || queueRow.state === 'running' || queueRow.state === 'retry') {
-		return 'pending';
-	}
-	if (queueRow.lastSuccessAt != null) return 'unavailable';
-	if (queueRow.state === 'error') return 'unavailable';
-	return 'pending';
 }
 
 // One-time migration helper: patch legacy rows so required detail fields can be enforced safely.
@@ -301,17 +275,19 @@ export const get = query({
 		if (args.mediaType === 'movie') {
 			const movieBase = (await getMovieBySource(
 				ctx,
-				args.source as MediaSource,
+				args.source,
 				args.externalId
 			)) as StoredMovieDoc | null;
 			if (!movieBase || movieBase.tmdbId === undefined) return null;
 			const movie = (await getFinalMovie(ctx, movieBase)) as StoredMovieDoc;
+			const movieTmdbId = movie.tmdbId;
+			if (movieTmdbId === undefined) return null;
 
 			const isAnime = movie.isAnime ?? false;
 			const animeStudioStatus = await resolveAnimeStudioStatus(
 				ctx,
 				'movie',
-				movie.tmdbId,
+				movieTmdbId,
 				movie.creatorCredits,
 				isAnime
 			);
@@ -338,7 +314,7 @@ export const get = query({
 
 			return {
 				mediaType: 'movie' as const,
-				id: movie.tmdbId,
+				id: movieTmdbId,
 				title: movie.title,
 				overview: movie.overview ?? null,
 				posterPath: movie.posterPath,
@@ -359,17 +335,19 @@ export const get = query({
 
 		const tvShowBase = (await getTVShowBySource(
 			ctx,
-			args.source as MediaSource,
+			args.source,
 			args.externalId
 		)) as StoredTVDoc | null;
 		if (!tvShowBase || tvShowBase.tmdbId === undefined) return null;
 		const tvShow = (await getFinalTV(ctx, tvShowBase)) as StoredTVDoc;
+		const tvShowTmdbId = tvShow.tmdbId;
+		if (tvShowTmdbId === undefined) return null;
 
 		const isAnime = tvShow.isAnime ?? false;
 		const animeStudioStatus = await resolveAnimeStudioStatus(
 			ctx,
 			'tv',
-			tvShow.tmdbId,
+			tvShowTmdbId,
 			tvShow.creatorCredits,
 			isAnime
 		);
@@ -397,7 +375,7 @@ export const get = query({
 
 		return {
 			mediaType: 'tv' as const,
-			id: tvShow.tmdbId,
+			id: tvShowTmdbId,
 			title: tvShow.title,
 			overview: tvShow.overview ?? null,
 			posterPath: tvShow.posterPath,
@@ -417,7 +395,7 @@ export const get = query({
 	}
 });
 
-export const upsertMovieOverrides = mutation({
+export const updateMovieOverrides = mutation({
 	args: {
 		tmdbId: v.number(),
 		title: v.optional(v.string()),
@@ -448,12 +426,7 @@ export const upsertMovieOverrides = mutation({
 		)
 	},
 	handler: async (ctx, args) => {
-		const rows = await ctx.db
-			.query('movieOverrides')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
-			.collect();
-		const [existing, ...dups] = rows;
-		for (const dup of dups) await ctx.db.delete(dup._id);
+		const existing = await getCanonicalMovieOverrideAndCleanup(ctx, args.tmdbId);
 		const payload = applyUnsetFields(
 			withDefined({
 				title: args.title,
@@ -486,16 +459,12 @@ export const upsertMovieOverrides = mutation({
 export const clearMovieOverrides = mutation({
 	args: { tmdbId: v.number() },
 	handler: async (ctx, args) => {
-		const rows = await ctx.db
-			.query('movieOverrides')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
-			.collect();
-		for (const row of rows) await ctx.db.delete(row._id);
-		return { ok: true, deleted: rows.length };
+		const deleted = await clearMovieOverridesByTMDBId(ctx, args.tmdbId);
+		return { ok: true, deleted };
 	}
 });
 
-export const upsertTVOverrides = mutation({
+export const updateTVOverrides = mutation({
 	args: {
 		tmdbId: v.number(),
 		title: v.optional(v.string()),
@@ -550,12 +519,7 @@ export const upsertTVOverrides = mutation({
 		)
 	},
 	handler: async (ctx, args) => {
-		const rows = await ctx.db
-			.query('tvOverrides')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
-			.collect();
-		const [existing, ...dups] = rows;
-		for (const dup of dups) await ctx.db.delete(dup._id);
+		const existing = await getCanonicalTVOverrideAndCleanup(ctx, args.tmdbId);
 		const payload = applyUnsetFields(
 			withDefined({
 				title: args.title,
@@ -591,11 +555,7 @@ export const upsertTVOverrides = mutation({
 export const clearTVOverrides = mutation({
 	args: { tmdbId: v.number() },
 	handler: async (ctx, args) => {
-		const rows = await ctx.db
-			.query('tvOverrides')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
-			.collect();
-		for (const row of rows) await ctx.db.delete(row._id);
-		return { ok: true, deleted: rows.length };
+		const deleted = await clearTVOverridesByTMDBId(ctx, args.tmdbId);
+		return { ok: true, deleted };
 	}
 });

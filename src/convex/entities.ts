@@ -214,26 +214,69 @@ export const resolveMediaLibraryState = internalQuery({
 				tvTmdbById.set(tvShowId, tmdbId);
 			}
 
-			const [movieReviews, tvReviews] = await Promise.all([
-				ctx.db
-					.query('movieReviews')
-					.withIndex('by_userId', (q) => q.eq('userId', userId))
-					.collect(),
-				ctx.db
-					.query('tvReviews')
-					.withIndex('by_userId', (q) => q.eq('userId', userId))
-					.collect()
-			]);
+			const linkedMovieIds = [...movieTmdbById.keys()];
+			const linkedTVIds = [...tvTmdbById.keys()];
+			const TARGETED_REVIEW_LOOKUP_THRESHOLD = 200;
+			const useTargetedLookups =
+				linkedMovieIds.length + linkedTVIds.length <= TARGETED_REVIEW_LOOKUP_THRESHOLD;
 
-			for (const review of movieReviews) {
-				if (!review.watched) continue;
-				const tmdbId = movieTmdbById.get(review.movieId);
-				if (typeof tmdbId === 'number') watchedMovies.add(tmdbId);
-			}
-			for (const review of tvReviews) {
-				if (!review.watched) continue;
-				const tmdbId = tvTmdbById.get(review.tvShowId);
-				if (typeof tmdbId === 'number') watchedTV.add(tmdbId);
+			if (useTargetedLookups) {
+				const [movieChecks, tvChecks] = await Promise.all([
+					Promise.all(
+						linkedMovieIds.map((movieId) =>
+							ctx.db
+								.query('movieReviews')
+								.withIndex('by_userId_movieId', (q) =>
+									q.eq('userId', userId).eq('movieId', movieId)
+								)
+								.unique()
+						)
+					),
+					Promise.all(
+						linkedTVIds.map((tvShowId) =>
+							ctx.db
+								.query('tvReviews')
+								.withIndex('by_userId_tvShowId', (q) =>
+									q.eq('userId', userId).eq('tvShowId', tvShowId)
+								)
+								.unique()
+						)
+					)
+				]);
+				for (let i = 0; i < linkedMovieIds.length; i += 1) {
+					const review = movieChecks[i];
+					if (!review?.watched) continue;
+					const tmdbId = movieTmdbById.get(linkedMovieIds[i]!);
+					if (typeof tmdbId === 'number') watchedMovies.add(tmdbId);
+				}
+				for (let i = 0; i < linkedTVIds.length; i += 1) {
+					const review = tvChecks[i];
+					if (!review?.watched) continue;
+					const tmdbId = tvTmdbById.get(linkedTVIds[i]!);
+					if (typeof tmdbId === 'number') watchedTV.add(tmdbId);
+				}
+			} else {
+				const [movieReviews, tvReviews] = await Promise.all([
+					ctx.db
+						.query('movieReviews')
+						.withIndex('by_userId', (q) => q.eq('userId', userId))
+						.collect(),
+					ctx.db
+						.query('tvReviews')
+						.withIndex('by_userId', (q) => q.eq('userId', userId))
+						.collect()
+				]);
+
+				for (const review of movieReviews) {
+					if (!review.watched) continue;
+					const tmdbId = movieTmdbById.get(review.movieId);
+					if (typeof tmdbId === 'number') watchedMovies.add(tmdbId);
+				}
+				for (const review of tvReviews) {
+					if (!review.watched) continue;
+					const tmdbId = tvTmdbById.get(review.tvShowId);
+					if (typeof tmdbId === 'number') watchedTV.add(tmdbId);
+				}
 			}
 		}
 

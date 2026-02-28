@@ -11,6 +11,28 @@ export type TVOverrideDoc = Doc<'tvOverrides'>;
 export type FinalMovieDoc = MovieDoc;
 export type FinalTVShowDoc = TVShowDoc;
 
+function latestByUpdatedAt<T extends { updatedAt?: number; _creationTime?: number }>(
+	rows: T[]
+): T | null {
+	let best: T | null = null;
+	let bestUpdatedAt = Number.NEGATIVE_INFINITY;
+	let bestCreatedAt = Number.NEGATIVE_INFINITY;
+	for (const row of rows) {
+		const updatedAt = row.updatedAt ?? 0;
+		const createdAt = row._creationTime ?? 0;
+		if (
+			best === null ||
+			updatedAt > bestUpdatedAt ||
+			(updatedAt === bestUpdatedAt && createdAt > bestCreatedAt)
+		) {
+			best = row;
+			bestUpdatedAt = updatedAt;
+			bestCreatedAt = createdAt;
+		}
+	}
+	return best;
+}
+
 /**
  * Looks up a movie by source and external ID.
  *
@@ -24,23 +46,25 @@ export async function getMovieBySource(
 	source: MediaSource,
 	externalId: number | string
 ): Promise<MovieDoc | null> {
-	if (source === 'tmdb') {
-		return await ctx.db
-			.query('movies')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', externalId as number))
-			.unique();
-	} else if (source === 'trakt') {
-		return await ctx.db
-			.query('movies')
-			.withIndex('by_traktId', (q) => q.eq('traktId', externalId as number))
-			.unique();
-	} else if (source === 'imdb') {
-		return await ctx.db
-			.query('movies')
-			.withIndex('by_imdbId', (q) => q.eq('imdbId', externalId as string))
-			.unique();
+	switch (source) {
+		case 'tmdb':
+			return await ctx.db
+				.query('movies')
+				.withIndex('by_tmdbId', (q) => q.eq('tmdbId', externalId as number))
+				.unique();
+		case 'trakt':
+			return await ctx.db
+				.query('movies')
+				.withIndex('by_traktId', (q) => q.eq('traktId', externalId as number))
+				.unique();
+		case 'imdb':
+			return await ctx.db
+				.query('movies')
+				.withIndex('by_imdbId', (q) => q.eq('imdbId', externalId as string))
+				.unique();
+		default:
+			return null;
 	}
-	return null;
 }
 
 /**
@@ -56,23 +80,25 @@ export async function getTVShowBySource(
 	source: MediaSource,
 	externalId: number | string
 ): Promise<TVShowDoc | null> {
-	if (source === 'tmdb') {
-		return await ctx.db
-			.query('tvShows')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', externalId as number))
-			.unique();
-	} else if (source === 'trakt') {
-		return await ctx.db
-			.query('tvShows')
-			.withIndex('by_traktId', (q) => q.eq('traktId', externalId as number))
-			.unique();
-	} else if (source === 'imdb') {
-		return await ctx.db
-			.query('tvShows')
-			.withIndex('by_imdbId', (q) => q.eq('imdbId', externalId as string))
-			.unique();
+	switch (source) {
+		case 'tmdb':
+			return await ctx.db
+				.query('tvShows')
+				.withIndex('by_tmdbId', (q) => q.eq('tmdbId', externalId as number))
+				.unique();
+		case 'trakt':
+			return await ctx.db
+				.query('tvShows')
+				.withIndex('by_traktId', (q) => q.eq('traktId', externalId as number))
+				.unique();
+		case 'imdb':
+			return await ctx.db
+				.query('tvShows')
+				.withIndex('by_imdbId', (q) => q.eq('imdbId', externalId as string))
+				.unique();
+		default:
+			return null;
 	}
-	return null;
 }
 
 export async function getMovieOverrideByTMDBId(
@@ -83,14 +109,7 @@ export async function getMovieOverrideByTMDBId(
 		.query('movieOverrides')
 		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', tmdbId))
 		.collect();
-	if (rows.length === 0) return null;
-	if (rows.length === 1) return rows[0] ?? null;
-	return rows
-		.slice()
-		.sort(
-			(a, b) =>
-				(b.updatedAt ?? 0) - (a.updatedAt ?? 0) || (b._creationTime ?? 0) - (a._creationTime ?? 0)
-		)[0]!;
+	return latestByUpdatedAt(rows);
 }
 
 export async function getTVOverrideByTMDBId(
@@ -101,14 +120,7 @@ export async function getTVOverrideByTMDBId(
 		.query('tvOverrides')
 		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', tmdbId))
 		.collect();
-	if (rows.length === 0) return null;
-	if (rows.length === 1) return rows[0] ?? null;
-	return rows
-		.slice()
-		.sort(
-			(a, b) =>
-				(b.updatedAt ?? 0) - (a.updatedAt ?? 0) || (b._creationTime ?? 0) - (a._creationTime ?? 0)
-		)[0]!;
+	return latestByUpdatedAt(rows);
 }
 
 export async function getFinalMovie(

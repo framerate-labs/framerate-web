@@ -1,39 +1,48 @@
-import type { Doc } from './_generated/dataModel';
 import type {
-	InsertMediaArgs,
-	RefreshCandidate,
-	RefreshIfStaleResult,
-	StoredMediaSnapshot,
-	StoredMovieDoc,
-	StoredTVDoc,
-	SweepStaleDetailsResult,
-	SyncPolicy
-} from './types/detailsType';
-import type { MediaType } from './types/mediaTypes';
-import type { MediaSource } from './utils/mediaLookup';
+	ProcessQueueResult,
+	QueueUpsertResult
+} from './services/detailsRefresh/resultParsers';
+import type { RefreshIfStaleResult, SweepStaleDetailsResult } from './types/detailsType';
 
 import { v } from 'convex/values';
 
 import { api, internal } from './_generated/api';
 import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
 import {
+	DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY,
+	DETAIL_REFRESH_QUEUE_BUSY_RETRY_MS,
+	DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
+	DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY
+} from './services/detailsRefresh/constants';
+import {
+	getStoredMediaHandler,
+	insertMediaHandler,
+	recordRefreshFailureHandler
+} from './services/detailsRefresh/mediaHandlers';
+import {
+	claimNextDetailRefreshQueueJobHandler,
+	enqueueStaleDetailRefreshQueueJobsHandler,
+	finishDetailRefreshQueueJobHandler,
+	listDetailRefreshQueueHandler,
+	listStaleRefreshCandidatesHandler,
+	pruneDetailRefreshQueueHandler,
+	pruneExpiredRefreshLeasesHandler,
+	releaseRefreshLeaseHandler,
+	tryAcquireRefreshLeaseHandler,
+	upsertDetailRefreshQueueRequestHandler
+} from './services/detailsRefresh/queueHandlers';
+import {
+	isQueueUpsertResult,
+	toAnimeSeasonEnqueueStatus,
+	toProcessQueueSummary,
+	toQueueSweepSummary,
+	toRefreshIfStaleResult
+} from './services/detailsRefresh/resultParsers';
+import {
 	computeRefreshErrorBackoffMs,
-	createDetailRefreshLeaseKey,
 	DEFAULT_DETAIL_REFRESH_CONFIG,
 	runRefreshIfStale
 } from './services/detailsRefreshService';
-import {
-	cloneCreatorCredits,
-	dedupeCreatorCredits,
-	mergeCreatorCreditsForSource
-} from './services/detailsService';
-import {
-	buildMovieInsertDoc,
-	buildMoviePatch,
-	buildTVInsertDoc,
-	buildTVPatch
-} from './utils/detailsUtils';
-import { getMovieBySource, getTVShowBySource } from './utils/mediaLookup';
 
 const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));
 const sourceValidator = v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb'));
@@ -43,39 +52,6 @@ const DETAIL_REFRESH_CONFIG = {
 	detailSchemaVersion: DETAIL_SCHEMA_VERSION,
 	...DEFAULT_DETAIL_REFRESH_CONFIG
 } as const;
-const DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY = 100;
-const DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY = 40;
-const DETAIL_REFRESH_QUEUE_BUSY_RETRY_MS = 15_000;
-const DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS = 30 * 24 * 60 * 60_000;
-
-const MOVIE_SYNC_POLICY = {
-	title: 'tmdb_authoritative',
-	posterPath: 'tmdb_authoritative',
-	backdropPath: 'tmdb_authoritative',
-	releaseDate: 'tmdb_authoritative',
-	overview: 'tmdb_authoritative',
-	status: 'tmdb_authoritative',
-	runtime: 'tmdb_authoritative',
-	isAnime: 'tmdb_authoritative',
-	isAnimeSource: 'tmdb_authoritative',
-	creatorCredits: 'tmdb_authoritative'
-} as const satisfies Record<string, SyncPolicy>;
-
-const TV_SYNC_POLICY = {
-	title: 'tmdb_authoritative',
-	posterPath: 'tmdb_authoritative',
-	backdropPath: 'tmdb_authoritative',
-	releaseDate: 'tmdb_authoritative',
-	overview: 'tmdb_authoritative',
-	status: 'tmdb_authoritative',
-	numberOfSeasons: 'tmdb_authoritative',
-	lastAirDate: 'tmdb_authoritative',
-	lastEpisodeToAir: 'tmdb_authoritative',
-	nextEpisodeToAir: 'tmdb_authoritative',
-	isAnime: 'tmdb_authoritative',
-	isAnimeSource: 'tmdb_authoritative',
-	creatorCredits: 'tmdb_authoritative'
-} as const satisfies Record<string, SyncPolicy>;
 
 const detailsEpisodeValidator = v.object({
 	airDate: v.union(v.string(), v.null()),
@@ -102,21 +78,13 @@ const detailCreatorCreditValidator = v.object({
 	matchConfidence: v.optional(v.union(v.number(), v.null()))
 });
 
-function detailRefreshQueueKey(
-	mediaType: 'movie' | 'tv',
-	source: 'tmdb' | 'trakt' | 'imdb',
-	externalId: number
-): string {
-	return `${source}:${mediaType}:${externalId}`;
-}
-
 function parseNumericTMDBId(id: number | string): number | null {
-	if (typeof id === 'number' && Number.isFinite(id)) return id;
+	if (typeof id === 'number' && Number.isFinite(id) && Number.isInteger(id) && id > 0) return id;
 	if (typeof id !== 'string') return null;
 	const trimmed = id.trim();
 	if (!/^\d+$/.test(trimmed)) return null;
 	const parsed = Number(trimmed);
-	return Number.isFinite(parsed) ? parsed : null;
+	return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 export const getStoredMedia = internalQuery({
@@ -125,50 +93,7 @@ export const getStoredMedia = internalQuery({
 		source: sourceValidator,
 		externalId: v.union(v.number(), v.string())
 	},
-	handler: async (ctx, args) => {
-		if (args.mediaType === 'movie') {
-			const movie = (await getMovieBySource(
-				ctx,
-				args.source as MediaSource,
-				args.externalId
-			)) as StoredMovieDoc | null;
-			if (!movie) return null;
-			return {
-				posterPath: movie.posterPath,
-				backdropPath: movie.backdropPath,
-				detailSchemaVersion: movie.detailSchemaVersion ?? null,
-				detailFetchedAt: movie.detailFetchedAt ?? null,
-				nextRefreshAt: movie.nextRefreshAt ?? null,
-				releaseDate: movie.releaseDate ?? null,
-				overview: movie.overview ?? null,
-				status: movie.status ?? null,
-				runtime: movie.runtime ?? null,
-				creatorCredits: movie.creatorCredits
-			} satisfies StoredMediaSnapshot;
-		}
-
-		const tvShow = (await getTVShowBySource(
-			ctx,
-			args.source as MediaSource,
-			args.externalId
-		)) as StoredTVDoc | null;
-		if (!tvShow) return null;
-		return {
-			posterPath: tvShow.posterPath,
-			backdropPath: tvShow.backdropPath,
-			detailSchemaVersion: tvShow.detailSchemaVersion ?? null,
-			detailFetchedAt: tvShow.detailFetchedAt ?? null,
-			nextRefreshAt: tvShow.nextRefreshAt ?? null,
-			releaseDate: tvShow.releaseDate ?? null,
-			overview: tvShow.overview ?? null,
-			status: tvShow.status ?? null,
-			numberOfSeasons: tvShow.numberOfSeasons ?? null,
-			lastAirDate: tvShow.lastAirDate ?? null,
-			lastEpisodeToAir: tvShow.lastEpisodeToAir ?? null,
-			nextEpisodeToAir: tvShow.nextEpisodeToAir ?? null,
-			creatorCredits: tvShow.creatorCredits
-		} satisfies StoredMediaSnapshot;
-	}
+	handler: getStoredMediaHandler
 });
 
 export const insertMedia = internalMutation({
@@ -194,53 +119,7 @@ export const insertMedia = internalMutation({
 		isAnimeSource: v.union(v.literal('auto'), v.literal('manual')),
 		creatorCredits: v.array(detailCreatorCreditValidator)
 	},
-	handler: async (ctx, rawArgs) => {
-		const args = rawArgs as InsertMediaArgs;
-		const incomingCreatorCredits = dedupeCreatorCredits(cloneCreatorCredits(args.creatorCredits));
-
-		if (args.mediaType === 'movie') {
-			const existing = (await getMovieBySource(
-				ctx,
-				args.source as MediaSource,
-				args.externalId
-			)) as StoredMovieDoc | null;
-			if (!existing) {
-				await ctx.db.insert('movies', buildMovieInsertDoc(args, incomingCreatorCredits));
-				return;
-			}
-
-			const mergedCreatorCredits = mergeCreatorCreditsForSource(
-				existing.creatorCredits,
-				incomingCreatorCredits,
-				'tmdb'
-			);
-			const patch = buildMoviePatch(existing, args, mergedCreatorCredits, MOVIE_SYNC_POLICY);
-			if (Object.keys(patch).length > 0) {
-				await ctx.db.patch(existing._id, patch);
-			}
-			return;
-		}
-
-		const existing = (await getTVShowBySource(
-			ctx,
-			args.source as MediaSource,
-			args.externalId
-		)) as StoredTVDoc | null;
-		if (!existing) {
-			await ctx.db.insert('tvShows', buildTVInsertDoc(args, incomingCreatorCredits));
-			return;
-		}
-
-		const mergedCreatorCredits = mergeCreatorCreditsForSource(
-			existing.creatorCredits,
-			incomingCreatorCredits,
-			'tmdb'
-		);
-		const patch = buildTVPatch(existing, args, mergedCreatorCredits, TV_SYNC_POLICY);
-		if (Object.keys(patch).length > 0) {
-			await ctx.db.patch(existing._id, patch);
-		}
-	}
+	handler: insertMediaHandler
 });
 
 export const tryAcquireRefreshLease = internalMutation({
@@ -252,54 +131,7 @@ export const tryAcquireRefreshLease = internalMutation({
 		ttlMs: v.number(),
 		owner: v.string()
 	},
-	handler: async (ctx, args) => {
-		const refreshKey = createDetailRefreshLeaseKey(
-			args.mediaType as MediaType,
-			args.source as MediaSource,
-			args.externalId
-		);
-		const existing = await ctx.db
-			.query('detailRefreshLeases')
-			.withIndex('by_refreshKey', (q) => q.eq('refreshKey', refreshKey))
-			.collect();
-		const [activeLease, ...duplicateLeases] = existing;
-		for (const duplicateLease of duplicateLeases) {
-			await ctx.db.delete(duplicateLease._id);
-		}
-		const leaseExpiresAt = args.now + args.ttlMs;
-
-		if (!activeLease) {
-			const leaseId = await ctx.db.insert('detailRefreshLeases', {
-				refreshKey,
-				mediaType: args.mediaType as MediaType,
-				source: args.source as MediaSource,
-				externalId: args.externalId,
-				owner: args.owner,
-				leasedAt: args.now,
-				leaseExpiresAt
-			});
-			return { acquired: true, leaseId, leaseExpiresAt };
-		}
-
-		if (activeLease.leaseExpiresAt <= args.now) {
-			await ctx.db.patch(activeLease._id, {
-				owner: args.owner,
-				leasedAt: args.now,
-				leaseExpiresAt
-			});
-			return {
-				acquired: true,
-				leaseId: activeLease._id,
-				leaseExpiresAt
-			};
-		}
-
-		return {
-			acquired: false,
-			leaseId: null,
-			leaseExpiresAt: activeLease.leaseExpiresAt
-		};
-	}
+	handler: tryAcquireRefreshLeaseHandler
 });
 
 export const releaseRefreshLease = internalMutation({
@@ -307,12 +139,7 @@ export const releaseRefreshLease = internalMutation({
 		leaseId: v.id('detailRefreshLeases'),
 		owner: v.string()
 	},
-	handler: async (ctx, args) => {
-		const lease = await ctx.db.get(args.leaseId);
-		if (!lease) return;
-		if (lease.owner !== args.owner) return;
-		await ctx.db.delete(args.leaseId);
-	}
+	handler: releaseRefreshLeaseHandler
 });
 
 export const pruneExpiredRefreshLeases = internalMutation({
@@ -320,18 +147,7 @@ export const pruneExpiredRefreshLeases = internalMutation({
 		now: v.number(),
 		limit: v.number()
 	},
-	handler: async (ctx, args) => {
-		const expired = await ctx.db
-			.query('detailRefreshLeases')
-			.withIndex('by_leaseExpiresAt', (q) => q.lte('leaseExpiresAt', args.now))
-			.take(args.limit);
-
-		for (const lease of expired) {
-			await ctx.db.delete(lease._id);
-		}
-
-		return { pruned: expired.length };
-	}
+	handler: pruneExpiredRefreshLeasesHandler
 });
 
 export const upsertDetailRefreshQueueRequest = internalMutation({
@@ -343,144 +159,27 @@ export const upsertDetailRefreshQueueRequest = internalMutation({
 		now: v.number(),
 		force: v.optional(v.boolean())
 	},
-	handler: async (ctx, args) => {
-		const syncKey = detailRefreshQueueKey(args.mediaType, args.source, args.externalId);
-		const rows = await ctx.db
-			.query('detailRefreshQueue')
-			.withIndex('by_syncKey', (q) => q.eq('syncKey', syncKey))
-			.collect();
-		const [existing, ...dups] = rows;
-		for (const dup of dups) await ctx.db.delete(dup._id);
-		const force = args.force === true;
-
-		if (!existing) {
-			const rowId = await ctx.db.insert('detailRefreshQueue', {
-				syncKey,
-				mediaType: args.mediaType,
-				source: args.source,
-				externalId: args.externalId,
-				state: 'queued',
-				priority: args.priority,
-				requestedAt: args.now,
-				lastRequestedAt: args.now,
-				nextAttemptAt: args.now,
-				attemptCount: 0
-			});
-			return { queued: true, inserted: true, rowId };
-		}
-
-		const isStale = (existing.nextRefreshAt ?? 0) <= args.now || existing.lastSuccessAt == null;
-		const shouldQueue =
-			force ||
-			isStale ||
-			existing.state === 'error' ||
-			existing.state === 'retry' ||
-			existing.state === 'queued';
-		const nextState =
-			existing.state === 'running' && !force ? 'running' : shouldQueue ? 'queued' : existing.state;
-		const nextPriority = Math.max(existing.priority, args.priority);
-		const nextAttemptAt =
-			nextState === 'queued'
-				? Math.min(existing.nextAttemptAt ?? args.now, args.now)
-				: existing.nextAttemptAt;
-		const nextLastError = nextState === 'queued' ? undefined : existing.lastError;
-		const needsPatch =
-			nextPriority !== existing.priority ||
-			(existing.lastRequestedAt ?? 0) !== args.now ||
-			nextAttemptAt !== existing.nextAttemptAt ||
-			nextState !== existing.state ||
-			nextLastError !== existing.lastError;
-		if (!needsPatch) {
-			return { queued: nextState === 'queued', inserted: false, rowId: existing._id };
-		}
-		await ctx.db.patch(existing._id, {
-			priority: nextPriority,
-			lastRequestedAt: args.now,
-			nextAttemptAt,
-			state: nextState,
-			lastError: nextLastError
-		});
-		return { queued: nextState === 'queued', inserted: false, rowId: existing._id };
-	}
+	handler: upsertDetailRefreshQueueRequestHandler
 });
 
-export const enqueueStaleDetailRefreshQueueJobs = internalAction({
-	args: {
-		now: v.number(),
-		limit: v.optional(v.number()),
-		limitPerType: v.optional(v.number()),
-		priority: v.optional(v.number())
-	},
-	handler: async (ctx, args) => {
-		const limit = Math.max(1, Math.min(args.limit ?? 200, 1000));
-		const limitPerType = Math.max(10, Math.min(args.limitPerType ?? 200, 500));
-		const priority = args.priority ?? DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY;
-		const candidates = await ctx.runQuery(internal.detailsRefresh.listStaleRefreshCandidates, {
-			now: args.now,
-			limitPerType
-		});
-		let scanned = 0;
-		let queued = 0;
-		for (const candidate of candidates as RefreshCandidate[]) {
-			if (scanned >= limit) break;
-			scanned += 1;
-			const result = await ctx.runMutation(
-				internal.detailsRefresh.upsertDetailRefreshQueueRequest,
-				{
-					mediaType: candidate.mediaType,
-					source: 'tmdb',
-					externalId: candidate.id,
-					priority,
-					now: args.now,
-					force: false
-				}
-			);
-			if ((result as { queued?: boolean }).queued) queued += 1;
-		}
-		return { scanned, queued };
+export const enqueueStaleDetailRefreshQueueJobs: ReturnType<typeof internalAction> = internalAction(
+	{
+		args: {
+			now: v.number(),
+			limit: v.optional(v.number()),
+			limitPerType: v.optional(v.number()),
+			priority: v.optional(v.number())
+		},
+		handler: enqueueStaleDetailRefreshQueueJobsHandler
 	}
-});
+);
 
 export const claimNextDetailRefreshQueueJob = internalMutation({
 	args: {
 		now: v.number(),
 		mediaType: v.optional(mediaTypeValidator)
 	},
-	handler: async (ctx, args) => {
-		const candidates: Array<Doc<'detailRefreshQueue'>> = [];
-		for (const state of ['queued', 'retry'] as const) {
-			const rows = await ctx.db
-				.query('detailRefreshQueue')
-				.withIndex('by_state_nextAttemptAt', (q) =>
-					q.eq('state', state).lte('nextAttemptAt', args.now)
-				)
-				.take(50);
-			for (const row of rows) {
-				if (args.mediaType && row.mediaType !== args.mediaType) continue;
-				candidates.push(row);
-			}
-		}
-		if (candidates.length === 0) return null;
-		candidates.sort(
-			(a, b) =>
-				b.priority - a.priority ||
-				(a.nextAttemptAt ?? 0) - (b.nextAttemptAt ?? 0) ||
-				(a.requestedAt ?? 0) - (b.requestedAt ?? 0)
-		);
-		const selected = candidates[0]!;
-		const nextAttemptCount = (selected.attemptCount ?? 0) + 1;
-		await ctx.db.patch(selected._id, {
-			state: 'running',
-			lastStartedAt: args.now,
-			attemptCount: nextAttemptCount,
-			lastError: undefined
-		});
-		return {
-			...selected,
-			state: 'running' as const,
-			attemptCount: nextAttemptCount
-		};
-	}
+	handler: claimNextDetailRefreshQueueJobHandler
 });
 
 export const finishDetailRefreshQueueJob = internalMutation({
@@ -493,40 +192,7 @@ export const finishDetailRefreshQueueJob = internalMutation({
 		lastError: v.optional(v.string()),
 		lastResultStatus: v.optional(v.string())
 	},
-	handler: async (ctx, args) => {
-		const row = await ctx.db.get(args.rowId);
-		if (!row) return { ok: false };
-		const patch: Record<string, unknown> = {
-			lastFinishedAt: args.now,
-			lastResultStatus: args.lastResultStatus
-		};
-		if (args.outcome === 'success') {
-			patch.state = 'idle';
-			patch.lastSuccessAt = args.now;
-			patch.nextRefreshAt =
-				args.nextRefreshAt ??
-				row.nextRefreshAt ??
-				args.now + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS;
-			patch.nextAttemptAt =
-				args.nextRefreshAt ??
-				row.nextRefreshAt ??
-				args.now + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS;
-			patch.attemptCount = 0;
-			patch.lastError = undefined;
-		} else if (args.outcome === 'retry') {
-			patch.state = 'retry';
-			patch.nextAttemptAt = args.nextAttemptAt ?? args.now + 60_000;
-			patch.lastError = args.lastError;
-		} else {
-			patch.state = 'error';
-			patch.nextAttemptAt =
-				args.nextAttemptAt ??
-				args.now + computeRefreshErrorBackoffMs(Math.max(1, row.attemptCount ?? 1));
-			patch.lastError = args.lastError;
-		}
-		await ctx.db.patch(args.rowId, patch);
-		return { ok: true };
-	}
+	handler: finishDetailRefreshQueueJobHandler
 });
 
 export const pruneDetailRefreshQueue = internalMutation({
@@ -534,22 +200,7 @@ export const pruneDetailRefreshQueue = internalMutation({
 		now: v.number(),
 		limit: v.optional(v.number())
 	},
-	handler: async (ctx, args) => {
-		const limit = Math.max(1, Math.min(args.limit ?? 200, 1000));
-		const rows = await ctx.db.query('detailRefreshQueue').collect();
-		let deleted = 0;
-		const idleCutoff = args.now - 120 * 24 * 60 * 60_000;
-		const errorCutoff = args.now - 45 * 24 * 60 * 60_000;
-		for (const row of rows) {
-			if (deleted >= limit) break;
-			if (row.state === 'running' || row.state === 'queued' || row.state === 'retry') continue;
-			if (row.state === 'idle' && (row.lastSuccessAt ?? 0) > idleCutoff) continue;
-			if (row.state === 'error' && (row.lastFinishedAt ?? 0) > errorCutoff) continue;
-			await ctx.db.delete(row._id);
-			deleted += 1;
-		}
-		return { deleted };
-	}
+	handler: pruneDetailRefreshQueueHandler
 });
 
 export const listDetailRefreshQueue = internalQuery({
@@ -563,17 +214,10 @@ export const listDetailRefreshQueue = internalQuery({
 				v.literal('error')
 			)
 		),
-		maxItems: v.optional(v.number())
+		maxItems: v.optional(v.number()),
+		includeTotal: v.optional(v.boolean())
 	},
-	handler: async (ctx, args) => {
-		const maxItems = Math.max(1, Math.min(args.maxItems ?? 200, 500));
-		const rows = await ctx.db.query('detailRefreshQueue').collect();
-		const filtered = args.state ? rows.filter((row) => row.state === args.state) : rows;
-		const items = filtered
-			.sort((a, b) => (b.lastRequestedAt ?? 0) - (a.lastRequestedAt ?? 0))
-			.slice(0, maxItems);
-		return { items, total: items.length };
-	}
+	handler: listDetailRefreshQueueHandler
 });
 
 export const listStaleRefreshCandidates = internalQuery({
@@ -581,36 +225,7 @@ export const listStaleRefreshCandidates = internalQuery({
 		now: v.number(),
 		limitPerType: v.number()
 	},
-	handler: async (ctx, args): Promise<RefreshCandidate[]> => {
-		const [movies, tvShows] = await Promise.all([
-			ctx.db
-				.query('movies')
-				.withIndex('by_nextRefreshAt', (q) => q.lte('nextRefreshAt', args.now))
-				.take(args.limitPerType),
-			ctx.db
-				.query('tvShows')
-				.withIndex('by_nextRefreshAt', (q) => q.lte('nextRefreshAt', args.now))
-				.take(args.limitPerType)
-		]);
-
-		const movieCandidates: RefreshCandidate[] = movies
-			.filter((movie) => typeof movie.tmdbId === 'number')
-			.map((movie) => ({
-				mediaType: 'movie',
-				id: movie.tmdbId as number,
-				nextRefreshAt: movie.nextRefreshAt ?? 0
-			}));
-
-		const tvCandidates: RefreshCandidate[] = tvShows
-			.filter((tvShow) => typeof tvShow.tmdbId === 'number')
-			.map((tvShow) => ({
-				mediaType: 'tv',
-				id: tvShow.tmdbId as number,
-				nextRefreshAt: tvShow.nextRefreshAt ?? 0
-			}));
-
-		return [...movieCandidates, ...tvCandidates].sort((a, b) => a.nextRefreshAt - b.nextRefreshAt);
-	}
+	handler: listStaleRefreshCandidatesHandler
 });
 
 export const recordRefreshFailure = internalMutation({
@@ -620,38 +235,7 @@ export const recordRefreshFailure = internalMutation({
 		externalId: v.union(v.number(), v.string()),
 		failedAt: v.number()
 	},
-	handler: async (ctx, args) => {
-		if (args.mediaType === 'movie') {
-			const movie = (await getMovieBySource(
-				ctx,
-				args.source as MediaSource,
-				args.externalId
-			)) as StoredMovieDoc | null;
-			if (!movie) return;
-			const nextErrorCount = (movie.refreshErrorCount ?? 0) + 1;
-			const nextRefreshAt = args.failedAt + computeRefreshErrorBackoffMs(nextErrorCount);
-			await ctx.db.patch(movie._id, {
-				refreshErrorCount: nextErrorCount,
-				lastRefreshErrorAt: args.failedAt,
-				nextRefreshAt
-			});
-			return;
-		}
-
-		const tvShow = (await getTVShowBySource(
-			ctx,
-			args.source as MediaSource,
-			args.externalId
-		)) as StoredTVDoc | null;
-		if (!tvShow) return;
-		const nextErrorCount = (tvShow.refreshErrorCount ?? 0) + 1;
-		const nextRefreshAt = args.failedAt + computeRefreshErrorBackoffMs(nextErrorCount);
-		await ctx.db.patch(tvShow._id, {
-			refreshErrorCount: nextErrorCount,
-			lastRefreshErrorAt: args.failedAt,
-			nextRefreshAt
-		});
-	}
+	handler: recordRefreshFailureHandler
 });
 
 export const refreshIfStale = action({
@@ -663,16 +247,18 @@ export const refreshIfStale = action({
 		skipQueueUpsert: v.optional(v.boolean())
 	},
 	handler: async (ctx, args): Promise<RefreshIfStaleResult> => {
-		const source = (args.source ?? 'tmdb') as MediaSource;
+		const source = args.source ?? 'tmdb';
 		const tmdbNumericId = source === 'tmdb' ? parseNumericTMDBId(args.id) : null;
 		const shouldUpsertQueueRow = args.skipQueueUpsert !== true && tmdbNumericId != null;
+		const now = Date.now();
 		if (shouldUpsertQueueRow) {
+			const externalId = tmdbNumericId;
 			await ctx.runMutation(internal.detailsRefresh.upsertDetailRefreshQueueRequest, {
 				mediaType: args.mediaType,
 				source: 'tmdb',
-				externalId: tmdbNumericId as number,
+				externalId,
 				priority: DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY,
-				now: Date.now(),
+				now,
 				force: args.force
 			});
 		}
@@ -691,30 +277,26 @@ export const refreshIfStale = action({
 		const shouldCheckAnimeEnrichment = tmdbNumericId != null;
 
 		if (shouldCheckAnimeEnrichment) {
-			const tmdbId = tmdbNumericId as number;
-			const animeEnqueueStatus = (await ctx.runQuery(
-				internal.anime.getAnimePickerEnqueueStatusByTMDB,
+			const tmdbId = tmdbNumericId;
+			const rawAnimeEnqueueStatus = await ctx.runQuery(
+				internal.animeSync.getAnimeSeasonEnqueueStatusByTMDB,
 				{
 					tmdbType: args.mediaType,
 					tmdbId,
-					now: Date.now()
+					now
 				}
-			)) as {
-				found: boolean;
-				isAnime: boolean | null;
-				shouldEnqueue: boolean;
-			};
+			);
+			const animeEnqueueStatus = toAnimeSeasonEnqueueStatus(rawAnimeEnqueueStatus);
 			if (animeEnqueueStatus.isAnime !== true || animeEnqueueStatus.shouldEnqueue !== true) {
 				return result;
 			}
 
 			try {
-				await ctx.scheduler.runAfter(0, api.anime.requestPickerRefreshForTMDB, {
+				await ctx.scheduler.runAfter(0, api.animeSync.requestSeasonRefreshForTMDB, {
 					tmdbType: args.mediaType,
 					tmdbId
 				});
 			} catch (error) {
-				// Detail refresh is primary; anime enrichment is best-effort.
 				console.warn('[detailsRefresh] anime sync failed after refreshIfStale', {
 					tmdbType: args.mediaType,
 					tmdbId,
@@ -742,12 +324,14 @@ export const sweepStaleDetails = internalAction({
 		const processResult = await ctx.runAction(internal.detailsRefresh.processDetailRefreshQueue, {
 			maxJobs: DETAIL_REFRESH_CONFIG.maxRefreshes
 		});
+		const process = toProcessQueueSummary(processResult);
+		const enqueue = toQueueSweepSummary(enqueueResult);
 		return {
-			scanned: (enqueueResult as { scanned?: number }).scanned ?? 0,
-			selected: (enqueueResult as { queued?: number }).queued ?? 0,
-			refreshed: (processResult as { refreshed?: number }).refreshed ?? 0,
-			skipped: (processResult as { skipped?: number }).skipped ?? 0,
-			failed: (processResult as { failed?: number }).failed ?? 0
+			scanned: enqueue.scanned,
+			selected: enqueue.queued,
+			refreshed: process.refreshed,
+			skipped: process.skipped,
+			failed: process.failed
 		};
 	}
 });
@@ -758,15 +342,19 @@ export const requestDetailRefreshForTMDB = action({
 		id: v.number(),
 		force: v.optional(v.boolean())
 	},
-	handler: async (ctx, args) => {
-		const result = await ctx.runMutation(internal.detailsRefresh.upsertDetailRefreshQueueRequest, {
-			mediaType: args.mediaType,
-			source: 'tmdb',
-			externalId: args.id,
-			priority: DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY,
-			now: Date.now(),
-			force: args.force
-		});
+	handler: async (ctx, args): Promise<QueueUpsertResult> => {
+		const now = Date.now();
+		const rawResult = await ctx.runMutation(
+			internal.detailsRefresh.upsertDetailRefreshQueueRequest,
+			{
+				mediaType: args.mediaType,
+				source: 'tmdb',
+				externalId: args.id,
+				priority: DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY,
+				now,
+				force: args.force
+			}
+		);
 		try {
 			await ctx.scheduler.runAfter(0, internal.detailsRefresh.processDetailRefreshQueue, {
 				maxJobs: 3
@@ -778,7 +366,10 @@ export const requestDetailRefreshForTMDB = action({
 				error
 			});
 		}
-		return result;
+		if (!isQueueUpsertResult(rawResult)) {
+			throw new Error('Invalid queue upsert result');
+		}
+		return rawResult;
 	}
 });
 
@@ -787,13 +378,14 @@ export const enqueueStaleDetailRefreshes = internalAction({
 		limit: v.optional(v.number()),
 		limitPerType: v.optional(v.number())
 	},
-	handler: async (ctx, args) => {
-		return await ctx.runAction(internal.detailsRefresh.enqueueStaleDetailRefreshQueueJobs, {
+	handler: async (ctx, args): Promise<{ scanned: number; queued: number }> => {
+		const raw = await ctx.runAction(internal.detailsRefresh.enqueueStaleDetailRefreshQueueJobs, {
 			now: Date.now(),
 			limit: args.limit ?? 200,
 			limitPerType: args.limitPerType ?? 150,
 			priority: DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY
 		});
+		return toQueueSweepSummary(raw);
 	}
 });
 
@@ -802,7 +394,7 @@ export const processDetailRefreshQueue = internalAction({
 		maxJobs: v.optional(v.number()),
 		mediaType: v.optional(mediaTypeValidator)
 	},
-	handler: async (ctx, args) => {
+	handler: async (ctx, args): Promise<ProcessQueueResult> => {
 		const now = Date.now();
 		const maxJobs = Math.max(1, Math.min(args.maxJobs ?? 6, 20));
 		await ctx.runMutation(internal.detailsRefresh.pruneExpiredRefreshLeases, {
@@ -827,28 +419,30 @@ export const processDetailRefreshQueue = internalAction({
 		let deferred = 0;
 
 		for (let index = 0; index < maxJobs; index += 1) {
+			const loopNow = Date.now();
 			const claim = await ctx.runMutation(internal.detailsRefresh.claimNextDetailRefreshQueueJob, {
-				now: Date.now(),
+				now: loopNow,
 				mediaType: args.mediaType
 			});
 			if (!claim) break;
 			processed += 1;
 			try {
-				const result = (await ctx.runAction(api.detailsRefresh.refreshIfStale, {
+				const rawResult = await ctx.runAction(api.detailsRefresh.refreshIfStale, {
 					mediaType: claim.mediaType,
 					id: claim.externalId,
 					source: claim.source,
 					force: false,
 					skipQueueUpsert: true
-				})) as RefreshIfStaleResult;
+				});
+				const result = toRefreshIfStaleResult(rawResult);
 				if (result.refreshed) {
 					refreshed += 1;
 					await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
 						rowId: claim._id,
-						now: Date.now(),
+						now: loopNow,
 						outcome: 'success',
 						nextRefreshAt:
-							result.nextRefreshAt ?? Date.now() + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
+							result.nextRefreshAt ?? loopNow + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
 						lastResultStatus: result.reason
 					});
 					continue;
@@ -857,9 +451,9 @@ export const processDetailRefreshQueue = internalAction({
 					deferred += 1;
 					await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
 						rowId: claim._id,
-						now: Date.now(),
+						now: loopNow,
 						outcome: 'retry',
-						nextAttemptAt: Date.now() + DETAIL_REFRESH_QUEUE_BUSY_RETRY_MS,
+						nextAttemptAt: loopNow + DETAIL_REFRESH_QUEUE_BUSY_RETRY_MS,
 						lastError: 'detail refresh already in flight',
 						lastResultStatus: result.reason
 					});
@@ -868,10 +462,10 @@ export const processDetailRefreshQueue = internalAction({
 				skipped += 1;
 				await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
 					rowId: claim._id,
-					now: Date.now(),
+					now: loopNow,
 					outcome: 'success',
 					nextRefreshAt:
-						result.nextRefreshAt ?? Date.now() + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
+						result.nextRefreshAt ?? loopNow + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
 					lastResultStatus: result.reason
 				});
 			} catch (error) {
@@ -880,9 +474,9 @@ export const processDetailRefreshQueue = internalAction({
 				const backoffMs = computeRefreshErrorBackoffMs(Math.max(1, claim.attemptCount ?? 1));
 				await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
 					rowId: claim._id,
-					now: Date.now(),
+					now: loopNow,
 					outcome: 'retry',
-					nextAttemptAt: Date.now() + backoffMs,
+					nextAttemptAt: loopNow + backoffMs,
 					lastError: errorMessage.slice(0, 500),
 					lastResultStatus: 'failed'
 				});

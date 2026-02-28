@@ -1,7 +1,6 @@
 import type { ActionCtx } from '../_generated/server';
+import type { DetailRefreshConfig } from '../types/detailsRefreshTypes';
 import type {
-	DetailRefreshDecision,
-	PreparedDetailSync,
 	RefreshCandidate,
 	RefreshIfStaleArgs,
 	RefreshIfStaleResult,
@@ -9,108 +8,34 @@ import type {
 	SweepStaleDetailsResult
 } from '../types/detailsType';
 import type { MediaType } from '../types/mediaTypes';
-import type { MediaSource } from '../utils/mediaLookup';
 
 import { internal } from '../_generated/api';
 import {
-	buildCompanies,
-	buildCreatorCredits,
-	computeIsAnime,
-	computeNextRefreshAt,
-	evaluateStoredMovieDecision,
-	evaluateStoredTVDecision,
 	shouldRetryDueToPotentialRegression,
-	shouldRetryDueToSparseInitialPayload,
-	toStoredEpisodeSummary
-} from './detailsService';
-import { fetchDetailsFromTMDB } from './detailsTmdbService';
+	shouldRetryDueToSparseInitialPayload
+} from '../utils/details/animeEnrichment';
+import { computeNextRefreshAt, toStoredEpisodeSummary } from '../utils/details/refreshPolicy';
+import {
+	createLeaseOwner,
+	ensureTMDBSource,
+	evaluateDetailRefreshDecision,
+	fetchPreparedDetailsForSync,
+	mediaSourceFromArgs
+} from '../utils/details/refreshRuntime';
 
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-const MAX_REFRESH_BACKOFF_MS = DAY_MS;
-const BASE_REFRESH_BACKOFF_MS = 15 * MINUTE_MS;
-
-export type DetailRefreshConfig = {
-	detailSchemaVersion: number;
-	leaseTtlMs: number;
-	pruneLimit: number;
-	scanPerType: number;
-	maxRefreshes: number;
-	batchSize: number;
-	expediteRecheckMs: number;
-};
-
-export const DEFAULT_DETAIL_REFRESH_CONFIG = {
-	leaseTtlMs: 90_000,
-	pruneLimit: 200,
-	scanPerType: 150,
-	maxRefreshes: 36,
-	batchSize: 6,
-	expediteRecheckMs: HOUR_MS
-} as const;
-
-function createLeaseOwner(now: number): string {
-	return `${now}:${Math.random().toString(36).slice(2, 10)}`;
-}
-
-async function fetchPreparedDetailsForSync(
-	mediaType: MediaType,
-	id: number
-): Promise<PreparedDetailSync> {
-	const details = await fetchDetailsFromTMDB(mediaType, id);
-	const companies = buildCompanies(details);
-	const isAnime = computeIsAnime(details);
-	const creatorCredits = buildCreatorCredits(details, isAnime, companies);
-	return {
-		details,
-		isAnime,
-		creatorCredits
-	};
-}
-
-export function createDetailRefreshLeaseKey(
-	mediaType: MediaType,
-	source: MediaSource,
-	externalId: number
-): string {
-	return `${source}:${mediaType}:${externalId}`;
-}
-
-export function computeRefreshErrorBackoffMs(errorCount: number): number {
-	const exponent = Math.max(0, errorCount - 1);
-	return Math.min(MAX_REFRESH_BACKOFF_MS, BASE_REFRESH_BACKOFF_MS * 2 ** exponent);
-}
-
-function evaluateDecision(
-	args: RefreshIfStaleArgs,
-	storedMedia: StoredMediaSnapshot | null,
-	now: number,
-	detailSchemaVersion: number
-): DetailRefreshDecision {
-	if (args.force === true) {
-		return { needsRefresh: true, hardStale: true, reason: 'forced' };
-	}
-	if (storedMedia === null) {
-		return { needsRefresh: true, hardStale: true, reason: 'missing' };
-	}
-	if (args.mediaType === 'movie') {
-		return evaluateStoredMovieDecision(storedMedia, now, detailSchemaVersion);
-	}
-	return evaluateStoredTVDecision(storedMedia, now, detailSchemaVersion);
-}
+export {
+	computeRefreshErrorBackoffMs,
+	createDetailRefreshLeaseKey,
+	DEFAULT_DETAIL_REFRESH_CONFIG
+} from '../utils/details/refreshRuntime';
 
 export async function runRefreshIfStale(
 	ctx: ActionCtx,
 	args: RefreshIfStaleArgs,
 	config: Pick<DetailRefreshConfig, 'detailSchemaVersion' | 'leaseTtlMs' | 'expediteRecheckMs'>
 ): Promise<RefreshIfStaleResult> {
-	const source = (args.source ?? 'tmdb') as MediaSource;
-	if (source !== 'tmdb') {
-		throw new Error(
-			`Source '${source}' is not yet implemented. Currently only 'tmdb' is supported for details.`
-		);
-	}
+	const source = mediaSourceFromArgs(args.source);
+	ensureTMDBSource(source);
 	if (typeof args.id !== 'number') {
 		throw new Error('TMDB IDs must be numbers');
 	}
@@ -125,7 +50,12 @@ export async function runRefreshIfStale(
 		}
 	)) as StoredMediaSnapshot | null;
 
-	const decision = evaluateDecision(args, storedMedia, now, config.detailSchemaVersion);
+	const decision = evaluateDetailRefreshDecision(
+		args,
+		storedMedia,
+		now,
+		config.detailSchemaVersion
+	);
 	if (!decision.needsRefresh) {
 		return {
 			refreshed: false,
@@ -166,7 +96,7 @@ export async function runRefreshIfStale(
 				}
 			)) as StoredMediaSnapshot | null;
 
-			const latestDecision = evaluateDecision(
+			const latestDecision = evaluateDetailRefreshDecision(
 				{ ...args, force: false },
 				latestStored,
 				Date.now(),

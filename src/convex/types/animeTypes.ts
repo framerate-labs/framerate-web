@@ -50,13 +50,6 @@ export type AniListStudio = {
 	isMain?: boolean;
 };
 
-export type AniListWatchLink = {
-	title?: string | null;
-	thumbnail?: string | null;
-	url: string;
-	site: string;
-};
-
 export type AniListDateParts = {
 	year: number | null;
 	month: number | null;
@@ -86,7 +79,6 @@ export type AniListMediaCore = {
 	episodes?: number | null;
 	description?: string | null;
 	studios?: AniListStudio[];
-	watchLinks?: AniListWatchLink[];
 };
 
 export type AnimeMatchCandidate = {

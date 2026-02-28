@@ -4,6 +4,16 @@ import { internal } from './_generated/api';
 
 const crons = cronJobs();
 
+// Keep cadence/limit knobs centralized so queue pressure can be tuned without
+// touching each schedule callsite.
+const DETAIL_ENQUEUE_LIMIT = 200;
+const DETAIL_ENQUEUE_LIMIT_PER_TYPE = 150;
+const DETAIL_PROCESS_MAX_JOBS = 8;
+const ANIME_ENQUEUE_STALE_LIMIT = 100;
+const ANIME_SEED_LIMIT = 200;
+const ANIME_PROCESS_MAX_JOBS = 4;
+const ANIME_ALERT_SWEEP_LIMIT_PER_TABLE = 40;
+
 // Refresh all trending data every hour.
 // Solves: avoids per-request TMDB fanout for home/trending surfaces while keeping cache reasonably fresh.
 crons.interval('refresh trending cache', { hours: 1 }, internal.trending.refreshAllTrending);
@@ -19,8 +29,8 @@ crons.interval(
 	{ minutes: 30 },
 	internal.detailsRefresh.enqueueStaleDetailRefreshes,
 	{
-		limit: 200,
-		limitPerType: 150
+		limit: DETAIL_ENQUEUE_LIMIT,
+		limitPerType: DETAIL_ENQUEUE_LIMIT_PER_TYPE
 	}
 );
 
@@ -31,17 +41,17 @@ crons.interval(
 	{ minutes: 5 },
 	internal.detailsRefresh.processDetailRefreshQueue,
 	{
-		maxJobs: 8
+		maxJobs: DETAIL_PROCESS_MAX_JOBS
 	}
 );
 
-// Re-queue anime picker sync rows whose anime-specific nextRefreshAt has expired.
+// Re-queue anime season sync rows whose anime-specific nextRefreshAt has expired.
 // Solves: keeps previously-enriched anime rows fresh over time using animeSyncQueue TTLs.
 crons.interval(
-	'enqueue stale anime picker refreshes',
+	'enqueue stale anime season refreshes',
 	{ minutes: 15 },
-	internal.anime.enqueueStaleAnimePickerRefreshes,
-	{ limit: 100 }
+	internal.animeSync.enqueueStaleAnimeSeasonRefreshes,
+	{ limit: ANIME_ENQUEUE_STALE_LIMIT }
 );
 
 // Seed the anime sync queue from stored anime media so non-interactive rows still enter
@@ -51,27 +61,32 @@ crons.interval(
 crons.interval(
 	'seed anime queue from tv shows',
 	{ hours: 6 },
-	internal.anime.seedAnimeSyncQueueFromStoredMedia,
+	internal.animeSync.seedAnimeSyncQueueFromStoredMedia,
 	{
 		table: 'tvShows',
-		limit: 200
+		limit: ANIME_SEED_LIMIT
 	}
 );
 crons.interval(
 	'seed anime queue from movies',
 	{ hours: 6 },
-	internal.anime.seedAnimeSyncQueueFromStoredMedia,
+	internal.animeSync.seedAnimeSyncQueueFromStoredMedia,
 	{
 		table: 'movies',
-		limit: 200
+		limit: ANIME_SEED_LIMIT
 	}
 );
 
 // Process the shared anime sync queue in small quota-aware batches.
 // Solves: centralizes AniList budget/rate-limit handling for both interactive and background anime enrichment.
-crons.interval('process anime sync queue', { minutes: 1 }, internal.anime.processAnimeSyncQueue, {
-	maxJobs: 4
-});
+crons.interval(
+	'process anime sync queue',
+	{ minutes: 1 },
+	internal.animeSync.processAnimeSyncQueue,
+	{
+		maxJobs: ANIME_PROCESS_MAX_JOBS
+	}
+);
 
 // Proactively materialize animeAlerts so data-quality issues are visible in the dashboard
 // even when operators edit rows directly in Convex (bypassing action hooks).
@@ -79,9 +94,9 @@ crons.interval('process anime sync queue', { minutes: 1 }, internal.anime.proces
 crons.interval(
 	'materialize anime alerts sweep',
 	{ hours: 1 },
-	internal.anime.sweepAnimeAlertsMaterialized,
+	internal.animeAlerts.sweepAnimeAlertsMaterialized,
 	{
-		limitPerTable: 40
+		limitPerTable: ANIME_ALERT_SWEEP_LIMIT_PER_TABLE
 	}
 );
 

@@ -2,8 +2,8 @@ import type { TMDBAnimeSource, TMDBExternalIds } from '../types/animeTypes';
 import type { MediaType } from '../types/mediaTypes';
 import type { NormalizedMediaDetails } from '../types/tmdb/detailsTypes';
 
-import { fetchDetailsFromTMDB } from './detailsTmdbService';
 import { fetchTMDBJson } from '../utils/tmdb';
+import { fetchDetailsFromTMDB } from './detailsTmdbService';
 
 function parseYear(dateString: string | null | undefined): number | null {
 	if (!dateString || dateString.length < 4) return null;
@@ -25,7 +25,8 @@ function parseTMDBExternalIds(tmdbType: MediaType, raw: unknown): TMDBExternalId
 		return { imdbId: null, tvdbId: null };
 	}
 	const row = raw as Record<string, unknown>;
-	const imdbId = typeof row.imdb_id === 'string' && row.imdb_id.trim().length > 0 ? row.imdb_id : null;
+	const imdbId =
+		typeof row.imdb_id === 'string' && row.imdb_id.trim().length > 0 ? row.imdb_id : null;
 	const tvdbId =
 		tmdbType === 'tv' && typeof row.tvdb_id === 'number' && Number.isFinite(row.tvdb_id)
 			? row.tvdb_id
@@ -33,7 +34,10 @@ function parseTMDBExternalIds(tmdbType: MediaType, raw: unknown): TMDBExternalId
 	return { imdbId, tvdbId };
 }
 
-export async function fetchTMDBAnimeSource(tmdbType: MediaType, tmdbId: number): Promise<TMDBAnimeSource> {
+export async function fetchTMDBAnimeSource(
+	tmdbType: MediaType,
+	tmdbId: number
+): Promise<TMDBAnimeSource> {
 	const details = await fetchDetailsFromTMDB(tmdbType, tmdbId);
 	const externalIdsRaw = await fetchTMDBJson(`/${tmdbType}/${tmdbId}/external_ids`);
 	const externalIds = parseTMDBExternalIds(tmdbType, externalIdsRaw);
@@ -55,18 +59,28 @@ export async function fetchTMDBAnimeSource(tmdbType: MediaType, tmdbId: number):
 						const raw = (await fetchTMDBJson(`/tv/${tmdbId}/season/0`)) as Record<string, unknown>;
 						const episodesRaw = Array.isArray(raw.episodes) ? raw.episodes : [];
 						return episodesRaw
-							.map((episode): { episodeNumber: number; name: string; airDate: string | null } | null => {
-								if (!episode || typeof episode !== 'object') return null;
-								const row = episode as Record<string, unknown>;
-								const episodeNumber = row.episode_number;
-								if (typeof episodeNumber !== 'number' || !Number.isFinite(episodeNumber)) return null;
-								return {
-									episodeNumber,
-									name: typeof row.name === 'string' ? row.name : `Special ${episodeNumber}`,
-									airDate: typeof row.air_date === 'string' ? row.air_date : null
-								};
-							})
-							.filter((episode): episode is { episodeNumber: number; name: string; airDate: string | null } => episode !== null);
+							.map(
+								(
+									episode
+								): { episodeNumber: number; name: string; airDate: string | null } | null => {
+									if (!episode || typeof episode !== 'object') return null;
+									const row = episode as Record<string, unknown>;
+									const episodeNumber = row.episode_number;
+									if (typeof episodeNumber !== 'number' || !Number.isFinite(episodeNumber))
+										return null;
+									return {
+										episodeNumber,
+										name: typeof row.name === 'string' ? row.name : `Special ${episodeNumber}`,
+										airDate: typeof row.air_date === 'string' ? row.air_date : null
+									};
+								}
+							)
+							.filter(
+								(
+									episode
+								): episode is { episodeNumber: number; name: string; airDate: string | null } =>
+									episode !== null
+							);
 					} catch {
 						return [];
 					}

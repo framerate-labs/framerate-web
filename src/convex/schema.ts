@@ -55,6 +55,21 @@ const detailCreatorCreditValidator = v.object({
 	matchConfidence: v.optional(v.union(v.number(), v.null()))
 });
 
+const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));
+const detailSourceValidator = v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb'));
+const detailRefreshStateValidator = v.union(
+	v.literal('idle'),
+	v.literal('queued'),
+	v.literal('running'),
+	v.literal('retry'),
+	v.literal('error')
+);
+const storedEpisodeSummaryValidator = v.object({
+	airDate: v.union(v.string(), v.null()),
+	seasonNumber: v.number(),
+	episodeNumber: v.number()
+});
+
 export default defineSchema({
 	// =====================================================================
 	// Single-row app-wide configuration (hero artwork + feature flags).
@@ -122,8 +137,8 @@ export default defineSchema({
 	// =====================================================================
 	detailRefreshLeases: defineTable({
 		refreshKey: v.string(),
-		mediaType: v.union(v.literal('movie'), v.literal('tv')),
-		source: v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb')),
+		mediaType: mediaTypeValidator,
+		source: detailSourceValidator,
 		externalId: v.number(),
 		owner: v.string(),
 		leasedAt: v.number(),
@@ -138,16 +153,10 @@ export default defineSchema({
 	// =====================================================================
 	detailRefreshQueue: defineTable({
 		syncKey: v.string(),
-		mediaType: v.union(v.literal('movie'), v.literal('tv')),
-		source: v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb')),
+		mediaType: mediaTypeValidator,
+		source: detailSourceValidator,
 		externalId: v.number(),
-		state: v.union(
-			v.literal('idle'),
-			v.literal('queued'),
-			v.literal('running'),
-			v.literal('retry'),
-			v.literal('error')
-		),
+		state: detailRefreshStateValidator,
 		priority: v.number(),
 		requestedAt: v.number(),
 		lastRequestedAt: v.number(),
@@ -162,6 +171,12 @@ export default defineSchema({
 	})
 		.index('by_syncKey', ['syncKey'])
 		.index('by_state_nextAttemptAt', ['state', 'nextAttemptAt'])
+		// Used for targeted retention pruning of stale idle rows.
+		.index('by_state_lastSuccessAt', ['state', 'lastSuccessAt'])
+		// Used for targeted retention pruning of stale error rows.
+		.index('by_state_lastFinishedAt', ['state', 'lastFinishedAt'])
+		// Used for queue/dashboard listing in reverse recency without full table scans.
+		.index('by_state_lastRequestedAt', ['state', 'lastRequestedAt'])
 		.index('by_nextRefreshAt', ['nextRefreshAt'])
 		.index('by_mediaType_nextAttemptAt', ['mediaType', 'nextAttemptAt']),
 
@@ -171,7 +186,7 @@ export default defineSchema({
 	animeSyncLeases: defineTable({
 		leaseKey: v.string(),
 		leaseKind: v.union(v.literal('title_sync'), v.literal('seed_sweep')),
-		jobType: v.optional(v.union(v.literal('picker'), v.literal('timeline'))),
+		jobType: v.optional(v.union(v.literal('season'), v.literal('timeline'))),
 		tmdbType: v.optional(v.union(v.literal('movie'), v.literal('tv'))),
 		tmdbId: v.optional(v.number()),
 		seedTable: v.optional(v.union(v.literal('tvShows'), v.literal('movies'))),
@@ -183,12 +198,12 @@ export default defineSchema({
 		.index('by_leaseExpiresAt', ['leaseExpiresAt']),
 
 	// =====================================================================
-	// Persistent anime sync queue/state (picker/timeline) used by quota-aware
+	// Persistent anime sync queue/state (season/timeline) used by quota-aware
 	// background workers. One row per TMDB title + job type.
 	// =====================================================================
 	animeSyncQueue: defineTable({
 		syncKey: v.string(),
-		jobType: v.union(v.literal('picker'), v.literal('timeline')),
+		jobType: v.union(v.literal('season'), v.literal('timeline')),
 		tmdbType: v.union(v.literal('movie'), v.literal('tv')),
 		tmdbId: v.number(),
 		state: v.union(
@@ -303,26 +318,8 @@ export default defineSchema({
 		status: v.optional(v.union(v.string(), v.null())),
 		numberOfSeasons: v.optional(v.union(v.number(), v.null())),
 		lastAirDate: v.optional(v.union(v.string(), v.null())),
-		lastEpisodeToAir: v.optional(
-			v.union(
-				v.object({
-					airDate: v.union(v.string(), v.null()),
-					seasonNumber: v.number(),
-					episodeNumber: v.number()
-				}),
-				v.null()
-			)
-		),
-		nextEpisodeToAir: v.optional(
-			v.union(
-				v.object({
-					airDate: v.union(v.string(), v.null()),
-					seasonNumber: v.number(),
-					episodeNumber: v.number()
-				}),
-				v.null()
-			)
-		),
+		lastEpisodeToAir: v.optional(v.union(storedEpisodeSummaryValidator, v.null())),
+		nextEpisodeToAir: v.optional(v.union(storedEpisodeSummaryValidator, v.null())),
 		detailSchemaVersion: v.optional(v.number()),
 		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
 		nextRefreshAt: v.optional(v.number()),
@@ -342,6 +339,7 @@ export default defineSchema({
 	// =====================================================================
 	movieOverrides: defineTable({
 		tmdbId: v.number(),
+		// Intended cardinality is one row per tmdbId; read paths pick the newest row if duplicates exist.
 		title: v.optional(v.string()),
 		isAnime: v.optional(v.boolean()),
 		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
@@ -363,6 +361,7 @@ export default defineSchema({
 	// =====================================================================
 	tvOverrides: defineTable({
 		tmdbId: v.number(),
+		// Intended cardinality is one row per tmdbId; read paths pick the newest row if duplicates exist.
 		title: v.optional(v.string()),
 		isAnime: v.optional(v.boolean()),
 		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
@@ -373,26 +372,8 @@ export default defineSchema({
 		status: v.optional(v.union(v.string(), v.null())),
 		numberOfSeasons: v.optional(v.union(v.number(), v.null())),
 		lastAirDate: v.optional(v.union(v.string(), v.null())),
-		lastEpisodeToAir: v.optional(
-			v.union(
-				v.object({
-					airDate: v.union(v.string(), v.null()),
-					seasonNumber: v.number(),
-					episodeNumber: v.number()
-				}),
-				v.null()
-			)
-		),
-		nextEpisodeToAir: v.optional(
-			v.union(
-				v.object({
-					airDate: v.union(v.string(), v.null()),
-					seasonNumber: v.number(),
-					episodeNumber: v.number()
-				}),
-				v.null()
-			)
-		),
+		lastEpisodeToAir: v.optional(v.union(storedEpisodeSummaryValidator, v.null())),
+		nextEpisodeToAir: v.optional(v.union(storedEpisodeSummaryValidator, v.null())),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
 		updatedAt: v.number()
 	})
@@ -477,31 +458,17 @@ export default defineSchema({
 			)
 		),
 
-		watchLinks: v.optional(
-			v.array(
-				v.object({
-					title: v.optional(v.union(v.string(), v.null())),
-					thumbnail: v.optional(v.union(v.string(), v.null())),
-					url: v.string(),
-					site: v.string()
-				})
-			)
-		),
-
 		fetchedAt: v.float64(),
 		schemaVersion: v.float64()
 	}).index('by_anilistId', ['anilistId']),
 
 	// =====================================================================
 	// Manual title-level anime UI overrides.
-	// Used for defaults that should apply across all picker rows/seasons.
+	// Used for defaults that should apply across all season rows.
 	// =====================================================================
 	animeTitleOverrides: defineTable({
 		tmdbType: v.union(v.literal('tv'), v.literal('movie')),
 		tmdbId: v.float64(),
-		seasonPickerMode: v.optional(
-			v.union(v.literal('anilist'), v.literal('tmdb_seasons'), v.null())
-		),
 		defaultEpisodeNumberingMode: v.optional(
 			v.union(v.literal('restarting'), v.literal('continuous'), v.null())
 		),
@@ -515,14 +482,15 @@ export default defineSchema({
 	}).index('by_tmdb', ['tmdbType', 'tmdbId']),
 
 	// =====================================================================
-	// Canonical anime picker rows (display seasons) built on top of TMDB episodes.
-	// These rows are what the app should render in the season picker.
+	// Canonical anime season rows (display seasons) built on top of TMDB episodes.
+	// These rows are what the app should render in season selection UI.
 	// Auto rows are regenerated from TMDB by sync while title is in displayPlanMode=auto.
 	// Manual rows persist across syncs when displayPlanMode=custom.
 	// =====================================================================
 	animeDisplaySeasons: defineTable({
 		tmdbType: v.union(v.literal('tv'), v.literal('movie')),
 		tmdbId: v.float64(),
+		// Row identity within a title. Intended uniqueness scope is (tmdbType, tmdbId, rowKey).
 		rowKey: v.string(),
 		label: v.string(),
 		sortOrder: v.float64(),
@@ -606,7 +574,7 @@ export default defineSchema({
 	}).index('by_table', ['table']),
 
 	// =====================================================================
-	// Cached TMDB episode lists for anime picker rows (by show + season).
+	// Cached TMDB episode lists for anime season rows (by show + season).
 	// =====================================================================
 	animeEpisodeCache: defineTable({
 		tmdbId: v.number(),
@@ -624,6 +592,7 @@ export default defineSchema({
 			})
 		),
 		fetchedAt: v.number(),
+		// Scheduler reads this field to decide when season cache should be refreshed.
 		nextRefreshAt: v.number()
 	})
 		.index('by_tmdbId_seasonNumber', ['tmdbId', 'seasonNumber'])
