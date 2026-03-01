@@ -8,7 +8,7 @@ const crons = cronJobs();
 // touching each schedule callsite.
 const DETAIL_ENQUEUE_LIMIT = 200;
 const DETAIL_ENQUEUE_LIMIT_PER_TYPE = 150;
-const DETAIL_PROCESS_MAX_JOBS = 8;
+const DETAIL_PROCESS_MAX_JOBS = 20;
 const ANIME_ENQUEUE_STALE_LIMIT = 100;
 const ANIME_SEED_LIMIT = 200;
 const ANIME_PROCESS_MAX_JOBS = 4;
@@ -49,7 +49,7 @@ crons.interval(
 // Solves: keeps previously-enriched anime rows fresh over time using animeSyncQueue TTLs.
 crons.interval(
 	'enqueue stale anime season refreshes',
-	{ minutes: 15 },
+	{ minutes: 30 },
 	internal.animeSync.enqueueStaleAnimeSeasonRefreshes,
 	{ limit: ANIME_ENQUEUE_STALE_LIMIT }
 );
@@ -81,7 +81,7 @@ crons.interval(
 // Solves: centralizes AniList budget/rate-limit handling for both interactive and background anime enrichment.
 crons.interval(
 	'process anime sync queue',
-	{ minutes: 1 },
+	{ minutes: 5 },
 	internal.animeSync.processAnimeSyncQueue,
 	{
 		maxJobs: ANIME_PROCESS_MAX_JOBS

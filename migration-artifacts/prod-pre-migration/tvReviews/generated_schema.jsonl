@@ -1,0 +1,1 @@
+"{\"_creationTime\": normalfloat64, \"_id\": id<10007>, \"createdAt\": normalfloat64, \"liked\": boolean, \"mediaType\": \"tv\", \"rating\": field_name, \"review\": null | \"FALSE\", \"tvShowId\": id<10008>, \"updatedAt\": normalfloat64, \"userId\": \"user_01KGQJ5CM6N931GD4HDCG7GTCM\", \"watched\": boolean}"
