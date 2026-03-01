@@ -1,9 +1,0 @@
-{"name":"appConfig","id":10001}
-{"name":"movieReviews","id":10002}
-{"name":"movies","id":10003}
-{"name":"searchCache","id":10004}
-{"name":"searchRateLimit","id":10005}
-{"name":"trendingCache","id":10006}
-{"name":"tvReviews","id":10007}
-{"name":"tvShows","id":10008}
-{"name":"userSessions","id":10009}

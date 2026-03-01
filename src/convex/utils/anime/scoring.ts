@@ -141,8 +141,12 @@ export function scoreFormat(
 	if (!candidateFormat) return 0.25;
 	if (tmdbType === 'movie') {
 		if (candidateFormat === 'MOVIE') return 1;
-		if (candidateFormat === 'SPECIAL') return 0.3;
-		return 0;
+		// TMDB often classifies anime side stories/special editions as "movie"
+		// while AniList may classify the same title as OVA/ONA.
+		if (candidateFormat === 'OVA' || candidateFormat === 'ONA') return 0.75;
+		if (candidateFormat === 'SPECIAL') return 0.35;
+		if (candidateFormat === 'TV' || candidateFormat === 'TV_SHORT') return 0.05;
+		return 0.1;
 	}
 	if (candidateFormat === 'TV') return 1;
 	if (candidateFormat === 'TV_SHORT') return 0.8;

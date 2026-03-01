@@ -1,1 +1,0 @@
-"{\"_creationTime\": normalfloat64, \"_id\": id<10002>, \"createdAt\": normalfloat64, \"liked\": boolean, \"mediaType\": \"movie\", \"movieId\": id<10003>, \"rating\": field_name, \"review\": null, \"updatedAt\": normalfloat64, \"userId\": \"user_01KGQJ5CM6N931GD4HDCG7GTCM\", \"watched\": boolean}"
