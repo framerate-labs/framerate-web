@@ -147,6 +147,16 @@ export const backfillRequiredDetailFields = internalMutation({
 				overview?: string | null;
 				status?: string | null;
 				numberOfSeasons?: number | null;
+				seasons?: Array<{
+					id: number;
+					name: string;
+					overview: string | null;
+					airDate: string | null;
+					episodeCount: number | null;
+					posterPath: string | null;
+					seasonNumber: number;
+					voteAverage: number | null;
+				}> | null;
 				lastAirDate?: string | null;
 				lastEpisodeToAir?: StoredEpisodeSummary | null;
 				nextEpisodeToAir?: StoredEpisodeSummary | null;
@@ -161,6 +171,7 @@ export const backfillRequiredDetailFields = internalMutation({
 			if (tvShow.overview === undefined) patch.overview = null;
 			if (tvShow.status === undefined) patch.status = null;
 			if (tvShow.numberOfSeasons === undefined) patch.numberOfSeasons = null;
+			if (tvShow.seasons === undefined) patch.seasons = null;
 			if (tvShow.lastAirDate === undefined) patch.lastAirDate = null;
 			if (tvShow.lastEpisodeToAir === undefined) patch.lastEpisodeToAir = null;
 			if (tvShow.nextEpisodeToAir === undefined) patch.nextEpisodeToAir = null;
@@ -366,6 +377,7 @@ export const get = query({
 				overview: tvShow.overview,
 				status: tvShow.status ?? null,
 				numberOfSeasons: tvShow.numberOfSeasons ?? null,
+				seasons: tvShow.seasons ?? null,
 				lastAirDate: tvShow.lastAirDate ?? null,
 				creatorCredits: tvShow.creatorCredits
 			},

@@ -77,6 +77,16 @@ const detailCreatorCreditValidator = v.object({
 	),
 	matchConfidence: v.optional(v.union(v.number(), v.null()))
 });
+const detailSeasonValidator = v.object({
+	id: v.number(),
+	name: v.string(),
+	overview: v.union(v.string(), v.null()),
+	airDate: v.union(v.string(), v.null()),
+	episodeCount: v.union(v.number(), v.null()),
+	posterPath: v.union(v.string(), v.null()),
+	seasonNumber: v.number(),
+	voteAverage: v.union(v.number(), v.null())
+});
 
 function parseNumericTMDBId(id: number | string): number | null {
 	if (typeof id === 'number' && Number.isFinite(id) && Number.isInteger(id) && id > 0) return id;
@@ -109,6 +119,7 @@ export const insertMedia = internalMutation({
 		status: v.string(),
 		runtime: v.union(v.number(), v.null()),
 		numberOfSeasons: v.optional(v.number()),
+		seasons: v.optional(v.union(v.array(detailSeasonValidator), v.null())),
 		lastAirDate: v.union(v.string(), v.null()),
 		lastEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),
 		nextEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),

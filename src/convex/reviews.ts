@@ -101,14 +101,17 @@ export const getAll = query({
 			movieReviews.map(async (review) => {
 				const movieBase = await ctx.db.get(review.movieId);
 				const movie = movieBase ? await getFinalMovie(ctx, movieBase) : null;
-				return buildReviewListItem({
-					mediaType: 'movie',
-					media: movie,
-					rating: review.rating,
-					createdAt: review.createdAt,
-					titleFallback: 'Unknown Movie',
-					posterPathFallback: null
-				});
+				return {
+					...buildReviewListItem({
+						mediaType: 'movie',
+						media: movie,
+						rating: review.rating,
+						createdAt: review.createdAt,
+						titleFallback: 'Unknown Movie',
+						posterPathFallback: null
+					}),
+					isAnime: movie?.isAnime ?? false
+				};
 			})
 		);
 
@@ -116,14 +119,17 @@ export const getAll = query({
 			tvReviews.map(async (review) => {
 				const tvShowBase = await ctx.db.get(review.tvShowId);
 				const tvShow = tvShowBase ? await getFinalTV(ctx, tvShowBase) : null;
-				return buildReviewListItem({
-					mediaType: 'tv',
-					media: tvShow,
-					rating: review.rating,
-					createdAt: review.createdAt,
-					titleFallback: 'Unknown Show',
-					posterPathFallback: null
-				});
+				return {
+					...buildReviewListItem({
+						mediaType: 'tv',
+						media: tvShow,
+						rating: review.rating,
+						createdAt: review.createdAt,
+						titleFallback: 'Unknown Show',
+						posterPathFallback: null
+					}),
+					isAnime: tvShow?.isAnime ?? false
+				};
 			})
 		);
 		const [movieData, tvData] = await Promise.all([movieDataPromise, tvDataPromise]);

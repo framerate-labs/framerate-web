@@ -157,6 +157,7 @@ export async function runRefreshIfStale(
 			runtime: prepared.details.mediaType === 'movie' ? prepared.details.runtime : null,
 			numberOfSeasons:
 				prepared.details.mediaType === 'tv' ? prepared.details.numberOfSeasons : undefined,
+			seasons: prepared.details.mediaType === 'tv' ? prepared.details.seasons : undefined,
 			lastAirDate: prepared.details.mediaType === 'tv' ? prepared.details.lastAirDate : null,
 			lastEpisodeToAir:
 				prepared.details.mediaType === 'tv'

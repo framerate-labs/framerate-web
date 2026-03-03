@@ -35,6 +35,17 @@ export type StoredEpisodeSummary = {
 	episodeNumber: number;
 };
 
+export type StoredTVSeasonSummary = {
+	id: number;
+	name: string;
+	overview: string | null;
+	airDate: string | null;
+	episodeCount: number | null;
+	posterPath: string | null;
+	seasonNumber: number;
+	voteAverage: number | null;
+};
+
 export type DetailRefreshDecision = {
 	needsRefresh: boolean;
 	hardStale: boolean;
@@ -50,6 +61,7 @@ export type StoredMediaSnapshot = {
 	status?: string | null;
 	runtime?: number | null;
 	numberOfSeasons?: number | null;
+	seasons?: StoredTVSeasonSummary[] | null;
 	lastAirDate?: string | null;
 	lastEpisodeToAir?: StoredEpisodeSummary | null;
 	nextEpisodeToAir?: StoredEpisodeSummary | null;
@@ -109,6 +121,7 @@ export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySourc
 	overview?: string | null;
 	status?: string | null;
 	numberOfSeasons?: number | null;
+	seasons?: StoredTVSeasonSummary[] | null;
 	lastAirDate?: string | null;
 	lastEpisodeToAir?: StoredEpisodeSummary | null;
 	nextEpisodeToAir?: StoredEpisodeSummary | null;
@@ -138,6 +151,7 @@ export type InsertMediaArgs = {
 	status: string;
 	runtime: number | null;
 	numberOfSeasons?: number;
+	seasons?: StoredTVSeasonSummary[] | null;
 	lastAirDate: string | null;
 	lastEpisodeToAir?: StoredEpisodeSummary | null;
 	nextEpisodeToAir?: StoredEpisodeSummary | null;
@@ -183,6 +197,7 @@ export type TVInsertDoc = SourceIdentifiers & {
 	overview: string | null;
 	status: string;
 	numberOfSeasons?: number | null;
+	seasons?: StoredTVSeasonSummary[] | null;
 	lastAirDate: string | null;
 	lastEpisodeToAir?: StoredEpisodeSummary | null;
 	nextEpisodeToAir?: StoredEpisodeSummary | null;

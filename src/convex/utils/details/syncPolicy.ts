@@ -1,6 +1,7 @@
 import type {
 	HeaderContributorInput,
 	StoredEpisodeSummary,
+	StoredTVSeasonSummary,
 	SyncPolicy
 } from '../../types/detailsType';
 
@@ -45,6 +46,39 @@ export function sameEpisodeSummary(
 		left.seasonNumber === right.seasonNumber &&
 		left.episodeNumber === right.episodeNumber
 	);
+}
+
+function sameTVSeasonSummary(
+	left: StoredTVSeasonSummary | null | undefined,
+	right: StoredTVSeasonSummary | null | undefined
+): boolean {
+	if (left === right) return true;
+	if (!left || !right) return false;
+	return (
+		left.id === right.id &&
+		left.name === right.name &&
+		left.overview === right.overview &&
+		left.airDate === right.airDate &&
+		left.episodeCount === right.episodeCount &&
+		left.posterPath === right.posterPath &&
+		left.seasonNumber === right.seasonNumber &&
+		left.voteAverage === right.voteAverage
+	);
+}
+
+export function sameTVSeasonSummaries(
+	left: StoredTVSeasonSummary[] | null | undefined,
+	right: StoredTVSeasonSummary[] | null | undefined
+): boolean {
+	const leftList = left ?? [];
+	const rightList = right ?? [];
+	if (leftList.length !== rightList.length) return false;
+	for (let index = 0; index < leftList.length; index += 1) {
+		if (!sameTVSeasonSummary(leftList[index], rightList[index])) {
+			return false;
+		}
+	}
+	return true;
 }
 
 function sameHeaderContributor(

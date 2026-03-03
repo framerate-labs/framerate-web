@@ -198,6 +198,7 @@ export function evaluateStoredTVDecision(
 		overview?: string | null;
 		status?: string | null;
 		numberOfSeasons?: number | null;
+		seasons?: unknown[] | null;
 		lastAirDate?: string | null;
 		creatorCredits?: HeaderContributorInput[] | null;
 	},

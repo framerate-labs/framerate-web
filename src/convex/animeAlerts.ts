@@ -16,7 +16,11 @@ import {
 } from './_generated/server';
 import { normalizeDisplaySeasonSources } from './services/anime/seasonPlanService';
 import { daysSinceDate } from './utils/anime/dateUtils';
-import { isSoftClosedLikeStatus, tmdbTypeValidator } from './utils/anime/domain';
+import {
+	isSoftClosedLikeStatus,
+	resolveDisplayPlanMode,
+	tmdbTypeValidator
+} from './utils/anime/domain';
 import {
 	anySourceCoversEpisodePoint,
 	episodePointFromTVEpisode
@@ -29,6 +33,10 @@ import {
 import { getFinalTV } from './utils/mediaLookup';
 
 const ANIME_ALERT_RESOLVED_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const CUSTOM_SUGGEST_SOFT_CLOSE_DAYS = 14;
+const CUSTOM_INACTIVE_SEASON_REVIEW_DAYS = 90;
+const AUTO_SUGGEST_SOFT_CLOSE_DAYS = 180;
+const AUTO_INACTIVE_SEASON_REVIEW_DAYS = 270;
 
 export const animeSeedTableValidator = v.union(v.literal('tvShows'), v.literal('movies'));
 
@@ -97,6 +105,18 @@ async function getAnimeSeasonReportForTMDBHandler(
 			.collect()
 	).filter((row) => row.hidden !== true);
 	if (rows.length === 0) return null;
+	const titleOverrideRows = await ctx.db
+		.query('animeTitleOverrides')
+		.withIndex('by_tmdb', (q) => q.eq('tmdbType', args.tmdbType).eq('tmdbId', args.tmdbId))
+		.collect();
+	const titleOverride = titleOverrideRows[0] ?? null;
+	const isCustomDisplayPlan = resolveDisplayPlanMode(titleOverride) === 'custom';
+	const suggestSoftCloseThresholdDays = isCustomDisplayPlan
+		? CUSTOM_SUGGEST_SOFT_CLOSE_DAYS
+		: AUTO_SUGGEST_SOFT_CLOSE_DAYS;
+	const inactiveSeasonReviewThresholdDays = isCustomDisplayPlan
+		? CUSTOM_INACTIVE_SEASON_REVIEW_DAYS
+		: AUTO_INACTIVE_SEASON_REVIEW_DAYS;
 
 	const sortedRows = rows
 		.slice()
@@ -228,7 +248,7 @@ async function getAnimeSeasonReportForTMDBHandler(
 			nextEpisode == null &&
 			lastEpisode &&
 			daysSinceLastEpisode != null &&
-			daysSinceLastEpisode >= 90
+			daysSinceLastEpisode >= inactiveSeasonReviewThresholdDays
 		) {
 			for (const row of normalizedRows) {
 				if ((row.status ?? null) !== 'open') continue;
@@ -249,7 +269,7 @@ async function getAnimeSeasonReportForTMDBHandler(
 			nextEpisode == null &&
 			lastEpisode &&
 			daysSinceLastEpisode != null &&
-			daysSinceLastEpisode >= 14
+			daysSinceLastEpisode >= suggestSoftCloseThresholdDays
 		) {
 			for (const row of normalizedRows) {
 				if ((row.status ?? null) !== 'open') continue;

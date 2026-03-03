@@ -69,6 +69,16 @@ const storedEpisodeSummaryValidator = v.object({
 	seasonNumber: v.number(),
 	episodeNumber: v.number()
 });
+const storedTVSeasonSummaryValidator = v.object({
+	id: v.number(),
+	name: v.string(),
+	overview: v.union(v.string(), v.null()),
+	airDate: v.union(v.string(), v.null()),
+	episodeCount: v.union(v.number(), v.null()),
+	posterPath: v.union(v.string(), v.null()),
+	seasonNumber: v.number(),
+	voteAverage: v.union(v.number(), v.null())
+});
 
 export default defineSchema({
 	// =====================================================================
@@ -317,6 +327,7 @@ export default defineSchema({
 		overview: v.optional(v.union(v.string(), v.null())),
 		status: v.optional(v.union(v.string(), v.null())),
 		numberOfSeasons: v.optional(v.union(v.number(), v.null())),
+		seasons: v.optional(v.union(v.array(storedTVSeasonSummaryValidator), v.null())),
 		lastAirDate: v.optional(v.union(v.string(), v.null())),
 		lastEpisodeToAir: v.optional(v.union(storedEpisodeSummaryValidator, v.null())),
 		nextEpisodeToAir: v.optional(v.union(storedEpisodeSummaryValidator, v.null())),
@@ -598,6 +609,30 @@ export default defineSchema({
 		),
 		fetchedAt: v.number(),
 		// Scheduler reads this field to decide when season cache should be refreshed.
+		nextRefreshAt: v.number()
+	})
+		.index('by_tmdbId_seasonNumber', ['tmdbId', 'seasonNumber'])
+		.index('by_nextRefreshAt', ['nextRefreshAt']),
+
+	// =====================================================================
+	// Cached TMDB episode lists for standard TV seasons (by show + season).
+	// =====================================================================
+	tvEpisodeCache: defineTable({
+		tmdbId: v.number(),
+		seasonNumber: v.number(),
+		episodes: v.array(
+			v.object({
+				id: v.number(),
+				name: v.string(),
+				overview: v.union(v.string(), v.null()),
+				airDate: v.union(v.string(), v.null()),
+				runtime: v.union(v.number(), v.null()),
+				episodeNumber: v.number(),
+				seasonNumber: v.number(),
+				stillPath: v.union(v.string(), v.null())
+			})
+		),
+		fetchedAt: v.number(),
 		nextRefreshAt: v.number()
 	})
 		.index('by_tmdbId_seasonNumber', ['tmdbId', 'seasonNumber'])

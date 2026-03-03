@@ -10,7 +10,12 @@ import type {
 	TVPatch
 } from '../../types/detailsType';
 
-import { sameEpisodeSummary, sameHeaderContributors, shouldApplySyncPolicy } from './syncPolicy';
+import {
+	sameEpisodeSummary,
+	sameHeaderContributors,
+	sameTVSeasonSummaries,
+	shouldApplySyncPolicy
+} from './syncPolicy';
 
 type MovieSyncPolicyMap = {
 	title: SyncPolicy;
@@ -33,6 +38,7 @@ type TVSyncPolicyMap = {
 	overview: SyncPolicy;
 	status: SyncPolicy;
 	numberOfSeasons: SyncPolicy;
+	seasons: SyncPolicy;
 	lastAirDate: SyncPolicy;
 	lastEpisodeToAir: SyncPolicy;
 	nextEpisodeToAir: SyncPolicy;
@@ -123,6 +129,7 @@ export function buildTVInsertDoc(
 		overview: args.overview,
 		status: args.status,
 		numberOfSeasons: args.numberOfSeasons,
+		seasons: args.seasons ?? null,
 		lastAirDate: args.lastAirDate,
 		lastEpisodeToAir: args.lastEpisodeToAir,
 		nextEpisodeToAir: args.nextEpisodeToAir
@@ -260,6 +267,12 @@ export function buildTVPatch(
 		existing.numberOfSeasons,
 		args.numberOfSeasons
 	);
+	if (
+		shouldApplySyncPolicy(syncPolicy.seasons, existing.seasons ?? null, args.seasons ?? null) &&
+		!sameTVSeasonSummaries(existing.seasons ?? null, args.seasons ?? null)
+	) {
+		patch.seasons = args.seasons ?? null;
+	}
 	setPatchByPolicy(
 		patch,
 		'lastAirDate',
