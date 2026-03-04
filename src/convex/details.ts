@@ -22,6 +22,10 @@ import {
 	evaluateStoredMovieDecision,
 	evaluateStoredTVDecision
 } from './utils/details/refreshPolicy';
+import {
+	loadAnimeAiringDisplayContext,
+	mapAnimeAiringEpisodeToDisplay
+} from './utils/details/animeAiringDisplay';
 import { sameHeaderContributors } from './utils/details/syncPolicy';
 import {
 	getFinalMovie,
@@ -368,6 +372,23 @@ export const get = query({
 			'tv',
 			animeStudioStatus
 		);
+		const animeAiringDisplayContext =
+			isAnime && (tvShow.lastEpisodeToAir != null || tvShow.nextEpisodeToAir != null)
+				? await loadAnimeAiringDisplayContext(ctx, {
+						tmdbType: 'tv',
+						tmdbId: tvShowTmdbId
+					})
+				: null;
+		const mappedLastEpisodeToAir = mapAnimeAiringEpisodeToDisplay(
+			animeAiringDisplayContext,
+			tvShow.lastEpisodeToAir,
+			{ prefersLatestOpenEndedRow: false }
+		);
+		const mappedNextEpisodeToAir = mapAnimeAiringEpisodeToDisplay(
+			animeAiringDisplayContext,
+			tvShow.nextEpisodeToAir,
+			{ prefersLatestOpenEndedRow: true }
+		);
 
 		const refreshDecision = evaluateStoredTVDecision(
 			{
@@ -397,8 +418,22 @@ export const get = query({
 			tvNumberOfSeasons: tvShow.numberOfSeasons ?? null,
 			tvStatus: tvShow.status ?? null,
 			tvLastAirDate: tvShow.lastAirDate ?? null,
-			tvLastEpisodeToAir: tvShow.lastEpisodeToAir ?? null,
-			tvNextEpisodeToAir: tvShow.nextEpisodeToAir ?? null,
+			tvLastEpisodeToAir:
+				tvShow.lastEpisodeToAir == null
+					? null
+					: {
+							...tvShow.lastEpisodeToAir,
+							displaySeasonNumber: mappedLastEpisodeToAir?.displaySeasonNumber ?? null,
+							displayEpisodeNumber: mappedLastEpisodeToAir?.displayEpisodeNumber ?? null
+						},
+			tvNextEpisodeToAir:
+				tvShow.nextEpisodeToAir == null
+					? null
+					: {
+							...tvShow.nextEpisodeToAir,
+							displaySeasonNumber: mappedNextEpisodeToAir?.displaySeasonNumber ?? null,
+							displayEpisodeNumber: mappedNextEpisodeToAir?.displayEpisodeNumber ?? null
+						},
 			headerContext,
 			nextRefreshAt: tvShow.nextRefreshAt ?? null,
 			hardStale: refreshDecision.hardStale,
