@@ -1,10 +1,11 @@
-import type { Filter, NormalizedTrendingItem, TimeWindow } from './types/tmdb/trendingTypes';
+import type { Filter, TimeWindow } from './types/tmdb/trendingTypes';
 
 import { v } from 'convex/values';
 
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, query } from './_generated/server';
 import { fetchTrendingFromTMDB } from './services/trendingService';
+import { buildMediaCardSummaries } from './utils/mediaCardPresentation';
 import { upsertByExisting } from './utils/upsert';
 
 // Argument validators (reusable)
@@ -16,6 +17,13 @@ const filterValidator = v.union(
 );
 
 const timeWindowValidator = v.union(v.literal('day'), v.literal('week'));
+const normalizedTrendingItemValidator = v.object({
+	id: v.number(),
+	mediaType: v.union(v.literal('movie'), v.literal('tv'), v.literal('person')),
+	title: v.string(),
+	posterPath: v.union(v.string(), v.null()),
+	profilePath: v.optional(v.union(v.string(), v.null()))
+});
 
 /**
  * Query: Get trending media from cache.
@@ -40,14 +48,19 @@ export const get = query({
 			)
 			.unique();
 
-		if (!cached) {
-			return null;
-		}
+		if (!cached) return null;
 
-		return {
-			items: cached.items,
-			fetchedAt: cached.fetchedAt
-		};
+		return buildMediaCardSummaries(
+			ctx,
+			cached.items.map((item) => ({
+				id: item.id,
+				mediaType: item.mediaType,
+				title: item.title,
+				// Person rows use profilePath in TMDB payloads, so fall back to it.
+				posterPath:
+					item.mediaType === 'person' ? (item.posterPath ?? item.profilePath ?? null) : item.posterPath
+			}))
+		);
 	}
 });
 
@@ -61,25 +74,7 @@ export const storeTrendingCache = internalMutation({
 	args: {
 		filter: filterValidator,
 		timeWindow: timeWindowValidator,
-		items: v.array(
-			v.object({
-				id: v.number(),
-				mediaType: v.union(v.literal('movie'), v.literal('tv'), v.literal('person')),
-				title: v.string(),
-				originalTitle: v.string(),
-				overview: v.optional(v.string()),
-				posterPath: v.union(v.string(), v.null()),
-				backdropPath: v.union(v.string(), v.null()),
-				popularity: v.number(),
-				voteAverage: v.optional(v.number()),
-				voteCount: v.optional(v.number()),
-				releaseDate: v.optional(v.string()),
-				genreIds: v.optional(v.array(v.number())),
-				adult: v.boolean(),
-				profilePath: v.optional(v.union(v.string(), v.null())),
-				knownForDepartment: v.optional(v.union(v.string(), v.null()))
-			})
-		),
+		items: v.array(normalizedTrendingItemValidator),
 		fetchedAt: v.number()
 	},
 	handler: async (ctx, args) => {
@@ -121,12 +116,28 @@ export const refreshTrending = internalAction({
 	},
 	handler: async (ctx, args) => {
 		const items = await fetchTrendingFromTMDB(args.filter as Filter, args.timeWindow as TimeWindow);
+		const cacheItems = items.map((item) =>
+			item.mediaType === 'person'
+				? {
+						id: item.id,
+						mediaType: item.mediaType,
+						title: item.title,
+						posterPath: item.posterPath,
+						profilePath: item.profilePath ?? null
+					}
+				: {
+						id: item.id,
+						mediaType: item.mediaType,
+						title: item.title,
+						posterPath: item.posterPath
+					}
+		);
 
 		// Store in cache via mutation
 		await ctx.runMutation(internal.trending.storeTrendingCache, {
 			filter: args.filter as Filter,
 			timeWindow: args.timeWindow as TimeWindow,
-			items: items as NormalizedTrendingItem[],
+			items: cacheItems,
 			fetchedAt: Date.now()
 		});
 

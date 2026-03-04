@@ -1,24 +1,14 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
-// Validator for trending media items (normalized to consistent shape)
-const trendingMediaValidator = v.object({
+// Minimal cached card payload for trending surfaces.
+const trendingCacheItemValidator = v.object({
 	id: v.number(),
 	mediaType: v.union(v.literal('movie'), v.literal('tv'), v.literal('person')),
 	title: v.string(),
-	originalTitle: v.string(),
-	overview: v.optional(v.string()),
 	posterPath: v.union(v.string(), v.null()),
-	backdropPath: v.union(v.string(), v.null()),
-	popularity: v.number(),
-	voteAverage: v.optional(v.number()),
-	voteCount: v.optional(v.number()),
-	releaseDate: v.optional(v.string()),
-	genreIds: v.optional(v.array(v.number())),
-	adult: v.boolean(),
-	// Person-specific fields
-	profilePath: v.optional(v.union(v.string(), v.null())),
-	knownForDepartment: v.optional(v.union(v.string(), v.null()))
+	// Person-specific fallback image path.
+	profilePath: v.optional(v.union(v.string(), v.null()))
 });
 
 // User session management for secure token refresh
@@ -99,7 +89,7 @@ export default defineSchema({
 	trendingCache: defineTable({
 		filter: v.union(v.literal('all'), v.literal('movie'), v.literal('tv'), v.literal('person')),
 		timeWindow: v.union(v.literal('day'), v.literal('week')),
-		items: v.array(trendingMediaValidator),
+		items: v.array(trendingCacheItemValidator),
 		fetchedAt: v.number()
 	}).index('by_filter_timeWindow', ['filter', 'timeWindow']),
 
@@ -114,15 +104,7 @@ export default defineSchema({
 				id: v.number(),
 				mediaType: v.union(v.literal('movie'), v.literal('tv')),
 				title: v.string(),
-				originalTitle: v.string(),
-				overview: v.optional(v.string()),
-				posterPath: v.union(v.string(), v.null()),
-				backdropPath: v.union(v.string(), v.null()),
-				popularity: v.number(),
-				releaseDate: v.union(v.string(), v.null()),
-				voteAverage: v.union(v.number(), v.null()),
-				voteCount: v.union(v.number(), v.null()),
-				adult: v.boolean()
+				posterPath: v.union(v.string(), v.null())
 			})
 		),
 		fetchedAt: v.number()

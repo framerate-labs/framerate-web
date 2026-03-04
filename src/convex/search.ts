@@ -1,10 +1,9 @@
-import type { NormalizedSearchItem } from './types/tmdb/searchTypes';
-
 import { v } from 'convex/values';
 
 import { internal } from './_generated/api';
 import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
 import { fetchSearchFromTMDB } from './services/searchService';
+import { buildMediaCardSummaries } from './utils/mediaCardPresentation';
 import { upsertByExisting } from './utils/upsert';
 
 const DEFAULT_LIMIT = 10;
@@ -17,6 +16,12 @@ const CACHE_RETENTION_MS = 30 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 25;
 const RATE_LIMIT_RETENTION_MS = 10 * 60 * 1000;
+const normalizedSearchItemValidator = v.object({
+	id: v.number(),
+	mediaType: v.union(v.literal('movie'), v.literal('tv')),
+	title: v.string(),
+	posterPath: v.union(v.string(), v.null())
+});
 
 function normalizeQuery(query: string): string {
 	return query.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -56,22 +61,7 @@ export const storeCachedResults = internalMutation({
 	args: {
 		queryKey: v.string(),
 		limit: v.number(),
-		items: v.array(
-			v.object({
-				id: v.number(),
-				mediaType: v.union(v.literal('movie'), v.literal('tv')),
-				title: v.string(),
-				originalTitle: v.string(),
-				overview: v.optional(v.string()),
-				posterPath: v.union(v.string(), v.null()),
-				backdropPath: v.union(v.string(), v.null()),
-				popularity: v.number(),
-				releaseDate: v.union(v.string(), v.null()),
-				voteAverage: v.union(v.number(), v.null()),
-				voteCount: v.union(v.number(), v.null()),
-				adult: v.boolean()
-			})
-		),
+		items: v.array(normalizedSearchItemValidator),
 		fetchedAt: v.number()
 	},
 	handler: async (ctx, args) => {
@@ -97,6 +87,23 @@ export const storeCachedResults = internalMutation({
 					fetchedAt: args.fetchedAt
 				})
 		});
+	}
+});
+
+export const presentSearchResults = internalQuery({
+	args: {
+		items: v.array(normalizedSearchItemValidator)
+	},
+	handler: async (ctx, args) => {
+		return buildMediaCardSummaries(
+			ctx,
+			args.items.map((item) => ({
+				id: item.id,
+				mediaType: item.mediaType,
+				title: item.title,
+				posterPath: item.posterPath
+			}))
+		);
 	}
 });
 
@@ -183,7 +190,7 @@ export const searchMedia = action({
 		query: v.string(),
 		limit: v.optional(v.number())
 	},
-	handler: async (ctx, args): Promise<NormalizedSearchItem[]> => {
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			throw new Error('Unauthorized: Please login or signup to continue');
@@ -205,7 +212,7 @@ export const searchMedia = action({
 			now
 		});
 		if (cached) {
-			return cached.items;
+			return await ctx.runQuery(internal.search.presentSearchResults, { items: cached.items });
 		}
 
 		await ctx.runMutation(internal.search.enforceRateLimit, {
@@ -214,14 +221,20 @@ export const searchMedia = action({
 		});
 
 		const items = await fetchSearchFromTMDB(normalizedQuery, safeLimit);
+		const cacheItems = items.map((item) => ({
+			id: item.id,
+			mediaType: item.mediaType,
+			title: item.title,
+			posterPath: item.posterPath
+		}));
 
 		await ctx.runMutation(internal.search.storeCachedResults, {
 			queryKey: normalizedQuery,
 			limit: safeLimit,
-			items,
+			items: cacheItems,
 			fetchedAt: now
 		});
 
-		return items;
+		return await ctx.runQuery(internal.search.presentSearchResults, { items: cacheItems });
 	}
 });

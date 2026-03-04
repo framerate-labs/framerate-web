@@ -14,9 +14,9 @@ const ANIME_SEED_LIMIT = 200;
 const ANIME_PROCESS_MAX_JOBS = 4;
 const ANIME_ALERT_SWEEP_LIMIT_PER_TABLE = 40;
 
-// Refresh all trending data every hour.
+// Refresh all trending data every 6 hours.
 // Solves: avoids per-request TMDB fanout for home/trending surfaces while keeping cache reasonably fresh.
-crons.interval('refresh trending cache', { hours: 1 }, internal.trending.refreshAllTrending);
+crons.interval('refresh trending cache', { hours: 6 }, internal.trending.refreshAllTrending);
 
 // Clean up ephemeral search artifacts and stale rate-limit bookkeeping.
 // Solves: unbounded growth of search cache/bucket rows.
