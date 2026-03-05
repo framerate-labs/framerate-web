@@ -1,4 +1,5 @@
 import type { QueryCtx } from '../_generated/server';
+
 import { getMovieOverrideByTMDBId, getTVOverrideByTMDBId } from './mediaLookup';
 
 export type MediaCardSummary = {
@@ -6,6 +7,8 @@ export type MediaCardSummary = {
 	mediaType: 'movie' | 'tv' | 'person';
 	title: string;
 	posterPath: string | null;
+	knownForDepartment?: string | null;
+	releaseYear?: number | null;
 };
 
 export async function buildMediaCardSummaries(
@@ -47,10 +50,7 @@ export async function buildMediaCardSummaries(
 	});
 }
 
-function uniqueIdsForMediaType(
-	items: MediaCardSummary[],
-	mediaType: 'movie' | 'tv'
-): number[] {
+function uniqueIdsForMediaType(items: MediaCardSummary[], mediaType: 'movie' | 'tv'): number[] {
 	return [...new Set(items.filter((item) => item.mediaType === mediaType).map((item) => item.id))];
 }
 

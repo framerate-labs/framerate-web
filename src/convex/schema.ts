@@ -10,6 +10,15 @@ const trendingCacheItemValidator = v.object({
 	// Person-specific fallback image path.
 	profilePath: v.optional(v.union(v.string(), v.null()))
 });
+const entityWorkCacheItemValidator = v.object({
+	mediaType: v.union(v.literal('movie'), v.literal('tv')),
+	tmdbId: v.number(),
+	title: v.string(),
+	posterPath: v.union(v.string(), v.null()),
+	releaseDate: v.union(v.string(), v.null()),
+	role: v.union(v.string(), v.null()),
+	billingOrder: v.union(v.number(), v.null())
+});
 
 // User session management for secure token refresh
 // Refresh tokens are stored server-side for security
@@ -102,9 +111,11 @@ export default defineSchema({
 		items: v.array(
 			v.object({
 				id: v.number(),
-				mediaType: v.union(v.literal('movie'), v.literal('tv')),
+				mediaType: v.union(v.literal('movie'), v.literal('tv'), v.literal('person')),
 				title: v.string(),
-				posterPath: v.union(v.string(), v.null())
+				posterPath: v.union(v.string(), v.null()),
+				knownForDepartment: v.union(v.string(), v.null()),
+				releaseYear: v.union(v.number(), v.null())
 			})
 		),
 		fetchedAt: v.number()
@@ -123,6 +134,51 @@ export default defineSchema({
 	})
 		.index('by_userId_bucketStart', ['userId', 'bucketStart'])
 		.index('by_bucketStart', ['bucketStart']),
+
+	// =====================================================================
+	// 24-hour TMDB entity page cache (person/company summary + canonical works).
+	// =====================================================================
+	personPageCache: defineTable({
+		tmdbPersonId: v.number(),
+		summary: v.object({
+			tmdbId: v.number(),
+			name: v.string(),
+			profilePath: v.union(v.string(), v.null()),
+			bio: v.union(v.string(), v.null()),
+			movieCreditCount: v.number(),
+			tvCreditCount: v.number(),
+			roles: v.array(v.string())
+		}),
+		works: v.array(entityWorkCacheItemValidator),
+		fetchedAt: v.number(),
+		nextRefreshAt: v.number(),
+		refreshingUntil: v.optional(v.number())
+	})
+		.index('by_tmdbPersonId', ['tmdbPersonId'])
+		.index('by_tmdbPersonId_fetchedAt', ['tmdbPersonId', 'fetchedAt'])
+		.index('by_fetchedAt', ['fetchedAt'])
+		.index('by_nextRefreshAt', ['nextRefreshAt']),
+
+	companyPageCache: defineTable({
+		tmdbCompanyId: v.number(),
+		summary: v.object({
+			tmdbId: v.number(),
+			name: v.string(),
+			logoPath: v.union(v.string(), v.null()),
+			bio: v.union(v.string(), v.null()),
+			movieCount: v.number(),
+			tvCount: v.number(),
+			roles: v.array(v.string())
+		}),
+		works: v.array(entityWorkCacheItemValidator),
+		fetchedAt: v.number(),
+		nextRefreshAt: v.number(),
+		refreshingUntil: v.optional(v.number())
+	})
+		.index('by_tmdbCompanyId', ['tmdbCompanyId'])
+		.index('by_tmdbCompanyId_fetchedAt', ['tmdbCompanyId', 'fetchedAt'])
+		.index('by_fetchedAt', ['fetchedAt'])
+		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
 	// =====================================================================
 	// Transient refresh leases used to dedupe stale detail refresh jobs.

@@ -11,7 +11,7 @@ import type {
 import { v } from 'convex/values';
 
 import { internal } from './_generated/api';
-import { action, internalMutation, internalQuery } from './_generated/server';
+import { action, internalAction, internalMutation, internalQuery } from './_generated/server';
 import {
 	annotateMediaWorksWithLibraryState,
 	applyMediaWorkFilters,
@@ -41,6 +41,11 @@ import {
 const COMPANY_GRAPH_MAX_DISCOVER_PAGES = 8;
 const PERSON_LINK_SOURCE = 'tmdb' as const;
 const COMPANY_LINK_SOURCE = 'tmdb' as const;
+const ENTITY_PAGE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const ENTITY_PAGE_REFRESH_LOCK_MS = 90_000;
+const ENTITY_PAGE_REFRESH_FAILURE_BACKOFF_MS = 2 * 60 * 1000;
+const ENTITY_PAGE_CACHE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const ENTITY_PAGE_CACHE_PRUNE_BATCH_SIZE = 200;
 
 const mediaFilterValidator = v.union(v.literal('all'), v.literal('movie'), v.literal('tv'));
 const personRoleFilterValidator = v.union(
@@ -56,27 +61,85 @@ const mediaReferenceValidator = v.object({
 	tmdbId: v.number(),
 	billingOrder: v.number()
 });
+const mediaWorkValidator = v.object({
+	mediaType: v.union(v.literal('movie'), v.literal('tv')),
+	tmdbId: v.number(),
+	title: v.string(),
+	posterPath: v.union(v.string(), v.null()),
+	releaseDate: v.union(v.string(), v.null()),
+	role: v.union(v.string(), v.null()),
+	billingOrder: v.union(v.number(), v.null())
+});
+const personSummaryValidator = v.object({
+	tmdbId: v.number(),
+	name: v.string(),
+	profilePath: v.union(v.string(), v.null()),
+	bio: v.union(v.string(), v.null()),
+	movieCreditCount: v.number(),
+	tvCreditCount: v.number(),
+	roles: v.array(v.string())
+});
+const companySummaryValidator = v.object({
+	tmdbId: v.number(),
+	name: v.string(),
+	logoPath: v.union(v.string(), v.null()),
+	bio: v.union(v.string(), v.null()),
+	movieCount: v.number(),
+	tvCount: v.number(),
+	roles: v.array(v.string())
+});
+
+type MediaFilter = 'all' | 'movie' | 'tv';
+type PersonRoleFilter = 'all' | 'actor' | 'director' | 'creator' | 'writer' | 'producer';
+
+function selectLatestByFetchedAt<T extends { fetchedAt: number; _creationTime: number }>(
+	rows: T[]
+): T | null {
+	if (rows.length === 0) return null;
+	let latest = rows[0]!;
+	for (const row of rows) {
+		if (
+			row.fetchedAt > latest.fetchedAt ||
+			(row.fetchedAt === latest.fetchedAt && row._creationTime > latest._creationTime)
+		) {
+			latest = row;
+		}
+	}
+	return latest;
+}
+
+function filterWorksByMediaType(works: MediaWork[], mediaFilter: MediaFilter): MediaWork[] {
+	if (mediaFilter === 'all') return works;
+	return works.filter((work) => work.mediaType === mediaFilter);
+}
+
+function filterPersonWorksByRole(works: MediaWork[], roleFilter: PersonRoleFilter): MediaWork[] {
+	if (roleFilter === 'all') return works;
+	return works.filter((work) => work.role === roleFilter);
+}
 
 async function annotateAndFilterMediaWorks(
 	ctx: ActionCtx,
 	params: {
 		userId: string | null;
 		works: MediaWork[];
-		mediaFilter: 'all' | 'movie' | 'tv';
+		mediaFilter: MediaFilter;
 		inLibraryOnly: boolean;
 		unwatchedOnly: boolean;
 		queryContext: MediaQueryContext;
 	}
 ): Promise<AnnotatedMediaWork[]> {
-	const references = toMediaReferences(params.works);
+	const works = filterWorksByMediaType(params.works, params.mediaFilter);
+	if (works.length === 0) return [];
+	const references = toMediaReferences(works);
 	const libraryStates = (await ctx.runQuery(internal.entities.resolveMediaLibraryState, {
 		userId: params.userId,
 		...params.queryContext,
 		works: references
 	})) as MediaLibraryState[];
-	const annotated = annotateMediaWorksWithLibraryState(params.works, libraryStates);
+	const annotated = annotateMediaWorksWithLibraryState(works, libraryStates);
 	return applyMediaWorkFilters(annotated, {
-		mediaFilter: params.mediaFilter,
+		mediaFilter: 'all',
 		inLibraryOnly: params.inLibraryOnly,
 		unwatchedOnly: params.unwatchedOnly
 	});
@@ -111,64 +174,72 @@ export const resolveMediaLibraryState = internalQuery({
 		}
 
 		if (personTmdbId !== null) {
-			const movieCredits = await ctx.db
-				.query('movieCredits')
-				.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
-				.collect();
-			for (const credit of movieCredits) {
-				if (credit.source !== PERSON_LINK_SOURCE) continue;
-				const mediaTmdbId =
-					typeof credit.mediaTmdbId === 'number'
-						? credit.mediaTmdbId
-						: (await ctx.db.get(credit.movieId))?.tmdbId;
-				if (typeof mediaTmdbId !== 'number') continue;
-				if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
-				linkedMovieIdByTmdbId.set(mediaTmdbId, credit.movieId);
+			if (movieTmdbIdsToCheck.size > 0) {
+				const movieCredits = await ctx.db
+					.query('movieCredits')
+					.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
+					.collect();
+				for (const credit of movieCredits) {
+					if (credit.source !== PERSON_LINK_SOURCE) continue;
+					const mediaTmdbId =
+						typeof credit.mediaTmdbId === 'number'
+							? credit.mediaTmdbId
+							: (await ctx.db.get(credit.movieId))?.tmdbId;
+					if (typeof mediaTmdbId !== 'number') continue;
+					if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
+					linkedMovieIdByTmdbId.set(mediaTmdbId, credit.movieId);
+				}
 			}
 
-			const tvCredits = await ctx.db
-				.query('tvCredits')
-				.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
-				.collect();
-			for (const credit of tvCredits) {
-				if (credit.source !== PERSON_LINK_SOURCE) continue;
-				const mediaTmdbId =
-					typeof credit.mediaTmdbId === 'number'
-						? credit.mediaTmdbId
-						: (await ctx.db.get(credit.tvShowId))?.tmdbId;
-				if (typeof mediaTmdbId !== 'number') continue;
-				if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
-				linkedTVIdByTmdbId.set(mediaTmdbId, credit.tvShowId);
+			if (tvTmdbIdsToCheck.size > 0) {
+				const tvCredits = await ctx.db
+					.query('tvCredits')
+					.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
+					.collect();
+				for (const credit of tvCredits) {
+					if (credit.source !== PERSON_LINK_SOURCE) continue;
+					const mediaTmdbId =
+						typeof credit.mediaTmdbId === 'number'
+							? credit.mediaTmdbId
+							: (await ctx.db.get(credit.tvShowId))?.tmdbId;
+					if (typeof mediaTmdbId !== 'number') continue;
+					if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
+					linkedTVIdByTmdbId.set(mediaTmdbId, credit.tvShowId);
+				}
 			}
 		} else if (companyTmdbId !== null) {
-			const movieCompanyLinks = await ctx.db
-				.query('movieCompanies')
-				.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
-				.collect();
-			for (const link of movieCompanyLinks) {
-				if (link.source !== COMPANY_LINK_SOURCE) continue;
-				const mediaTmdbId =
-					typeof link.mediaTmdbId === 'number'
-						? link.mediaTmdbId
-						: (await ctx.db.get(link.movieId))?.tmdbId;
-				if (typeof mediaTmdbId !== 'number') continue;
-				if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
-				linkedMovieIdByTmdbId.set(mediaTmdbId, link.movieId);
+			if (movieTmdbIdsToCheck.size > 0) {
+				const movieCompanyLinks = await ctx.db
+					.query('movieCompanies')
+					.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
+					.collect();
+				for (const link of movieCompanyLinks) {
+					if (link.source !== COMPANY_LINK_SOURCE) continue;
+					const mediaTmdbId =
+						typeof link.mediaTmdbId === 'number'
+							? link.mediaTmdbId
+							: (await ctx.db.get(link.movieId))?.tmdbId;
+					if (typeof mediaTmdbId !== 'number') continue;
+					if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
+					linkedMovieIdByTmdbId.set(mediaTmdbId, link.movieId);
+				}
 			}
 
-			const tvCompanyLinks = await ctx.db
-				.query('tvCompanies')
-				.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
-				.collect();
-			for (const link of tvCompanyLinks) {
-				if (link.source !== COMPANY_LINK_SOURCE) continue;
-				const mediaTmdbId =
-					typeof link.mediaTmdbId === 'number'
-						? link.mediaTmdbId
-						: (await ctx.db.get(link.tvShowId))?.tmdbId;
-				if (typeof mediaTmdbId !== 'number') continue;
-				if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
-				linkedTVIdByTmdbId.set(mediaTmdbId, link.tvShowId);
+			if (tvTmdbIdsToCheck.size > 0) {
+				const tvCompanyLinks = await ctx.db
+					.query('tvCompanies')
+					.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
+					.collect();
+				for (const link of tvCompanyLinks) {
+					if (link.source !== COMPANY_LINK_SOURCE) continue;
+					const mediaTmdbId =
+						typeof link.mediaTmdbId === 'number'
+							? link.mediaTmdbId
+							: (await ctx.db.get(link.tvShowId))?.tmdbId;
+					if (typeof mediaTmdbId !== 'number') continue;
+					if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
+					linkedTVIdByTmdbId.set(mediaTmdbId, link.tvShowId);
+				}
 			}
 		} else {
 			// Fallback path when link context is not available.
@@ -455,6 +526,180 @@ export const syncCompanyFromTMDB = internalMutation({
 	}
 });
 
+export const tryAcquirePersonPageRefresh = internalMutation({
+	args: {
+		tmdbPersonId: v.number(),
+		now: v.number()
+	},
+	handler: async (ctx, args) => {
+		const latest = await ctx.db
+			.query('personPageCache')
+			.withIndex('by_tmdbPersonId_fetchedAt', (q) => q.eq('tmdbPersonId', args.tmdbPersonId))
+			.order('desc')
+			.first();
+		if (!latest) {
+			return { acquired: true, cached: null };
+		}
+		if (latest.nextRefreshAt > args.now) {
+			return { acquired: false, cached: latest };
+		}
+		if ((latest.refreshingUntil ?? 0) > args.now) {
+			return { acquired: false, cached: latest };
+		}
+		await ctx.db.patch(latest._id, {
+			refreshingUntil: args.now + ENTITY_PAGE_REFRESH_LOCK_MS
+		});
+		return { acquired: true, cached: latest };
+	}
+});
+
+export const deferPersonPageRefresh = internalMutation({
+	args: {
+		tmdbPersonId: v.number(),
+		until: v.number()
+	},
+	handler: async (ctx, args) => {
+		const latest = await ctx.db
+			.query('personPageCache')
+			.withIndex('by_tmdbPersonId_fetchedAt', (q) => q.eq('tmdbPersonId', args.tmdbPersonId))
+			.order('desc')
+			.first();
+		if (!latest) return;
+		await ctx.db.patch(latest._id, {
+			refreshingUntil: args.until
+		});
+	}
+});
+
+export const storePersonPageCache = internalMutation({
+	args: {
+		tmdbPersonId: v.number(),
+		summary: personSummaryValidator,
+		works: v.array(mediaWorkValidator),
+		fetchedAt: v.number()
+	},
+	handler: async (ctx, args) => {
+		const rows = await ctx.db
+			.query('personPageCache')
+			.withIndex('by_tmdbPersonId', (q) => q.eq('tmdbPersonId', args.tmdbPersonId))
+			.collect();
+		const latest = selectLatestByFetchedAt(rows);
+		const nextRefreshAt = args.fetchedAt + ENTITY_PAGE_CACHE_TTL_MS;
+
+		if (latest) {
+			await ctx.db.patch(latest._id, {
+				summary: args.summary,
+				works: args.works,
+				fetchedAt: args.fetchedAt,
+				nextRefreshAt,
+				refreshingUntil: 0
+			});
+		} else {
+			await ctx.db.insert('personPageCache', {
+				tmdbPersonId: args.tmdbPersonId,
+				summary: args.summary,
+				works: args.works,
+				fetchedAt: args.fetchedAt,
+				nextRefreshAt,
+				refreshingUntil: 0
+			});
+		}
+
+		for (const row of rows) {
+			if (!latest || row._id !== latest._id) {
+				await ctx.db.delete(row._id);
+			}
+		}
+	}
+});
+
+export const tryAcquireCompanyPageRefresh = internalMutation({
+	args: {
+		tmdbCompanyId: v.number(),
+		now: v.number()
+	},
+	handler: async (ctx, args) => {
+		const latest = await ctx.db
+			.query('companyPageCache')
+			.withIndex('by_tmdbCompanyId_fetchedAt', (q) => q.eq('tmdbCompanyId', args.tmdbCompanyId))
+			.order('desc')
+			.first();
+		if (!latest) {
+			return { acquired: true, cached: null };
+		}
+		if (latest.nextRefreshAt > args.now) {
+			return { acquired: false, cached: latest };
+		}
+		if ((latest.refreshingUntil ?? 0) > args.now) {
+			return { acquired: false, cached: latest };
+		}
+		await ctx.db.patch(latest._id, {
+			refreshingUntil: args.now + ENTITY_PAGE_REFRESH_LOCK_MS
+		});
+		return { acquired: true, cached: latest };
+	}
+});
+
+export const deferCompanyPageRefresh = internalMutation({
+	args: {
+		tmdbCompanyId: v.number(),
+		until: v.number()
+	},
+	handler: async (ctx, args) => {
+		const latest = await ctx.db
+			.query('companyPageCache')
+			.withIndex('by_tmdbCompanyId_fetchedAt', (q) => q.eq('tmdbCompanyId', args.tmdbCompanyId))
+			.order('desc')
+			.first();
+		if (!latest) return;
+		await ctx.db.patch(latest._id, {
+			refreshingUntil: args.until
+		});
+	}
+});
+
+export const storeCompanyPageCache = internalMutation({
+	args: {
+		tmdbCompanyId: v.number(),
+		summary: companySummaryValidator,
+		works: v.array(mediaWorkValidator),
+		fetchedAt: v.number()
+	},
+	handler: async (ctx, args) => {
+		const rows = await ctx.db
+			.query('companyPageCache')
+			.withIndex('by_tmdbCompanyId', (q) => q.eq('tmdbCompanyId', args.tmdbCompanyId))
+			.collect();
+		const latest = selectLatestByFetchedAt(rows);
+		const nextRefreshAt = args.fetchedAt + ENTITY_PAGE_CACHE_TTL_MS;
+
+		if (latest) {
+			await ctx.db.patch(latest._id, {
+				summary: args.summary,
+				works: args.works,
+				fetchedAt: args.fetchedAt,
+				nextRefreshAt,
+				refreshingUntil: 0
+			});
+		} else {
+			await ctx.db.insert('companyPageCache', {
+				tmdbCompanyId: args.tmdbCompanyId,
+				summary: args.summary,
+				works: args.works,
+				fetchedAt: args.fetchedAt,
+				nextRefreshAt,
+				refreshingUntil: 0
+			});
+		}
+
+		for (const row of rows) {
+			if (!latest || row._id !== latest._id) {
+				await ctx.db.delete(row._id);
+			}
+		}
+	}
+});
+
 export const getPersonPageFromTMDB = action({
 	args: {
 		tmdbPersonId: v.number(),
@@ -465,58 +710,110 @@ export const getPersonPageFromTMDB = action({
 		limit: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
-		const mediaFilter = (args.mediaFilter ?? 'all') as 'all' | 'movie' | 'tv';
-		const roleFilter = (args.role ?? 'all') as
-			| 'all'
-			| 'actor'
-			| 'director'
-			| 'creator'
-			| 'writer'
-			| 'producer';
+		const mediaFilter = (args.mediaFilter ?? 'all') as MediaFilter;
+		const roleFilter = (args.role ?? 'all') as PersonRoleFilter;
 		const inLibraryOnly = args.inLibraryOnly ?? false;
 		const unwatchedOnly = args.unwatchedOnly ?? false;
 		const safeLimit = clampMediaWorkLimit(args.limit);
 		const identity = await ctx.auth.getUserIdentity();
 		const userId = identity?.subject ?? null;
+		const now = Date.now();
 
-		const payload = await fetchPersonFromTMDB(args.tmdbPersonId);
-		const personMediaReferences = buildPersonMediaReferences(payload);
-		await ctx.runMutation(internal.entities.syncPersonFromTMDB, {
-			tmdbPersonId: payload.id,
-			name: payload.name,
-			profilePath: payload.profile_path,
-			references: personMediaReferences
+		let personTmdbId = args.tmdbPersonId;
+		let summary: {
+			tmdbId: number;
+			name: string;
+			profilePath: string | null;
+			bio: string | null;
+			movieCreditCount: number;
+			tvCreditCount: number;
+			roles: string[];
+		};
+		let canonicalWorks: MediaWork[];
+
+		const refresh = await ctx.runMutation(internal.entities.tryAcquirePersonPageRefresh, {
+			tmdbPersonId: args.tmdbPersonId,
+			now
 		});
-		const summaryData = buildPersonMediaWorksFromTMDB(payload, {
-			mediaFilter: 'all',
-			roleFilter: 'all'
-		});
-		const worksData = buildPersonMediaWorksFromTMDB(payload, {
-			mediaFilter,
-			roleFilter
-		});
+		const cached = refresh.cached as {
+			summary: {
+				tmdbId: number;
+				name: string;
+				profilePath: string | null;
+				bio: string | null;
+				movieCreditCount: number;
+				tvCreditCount: number;
+				roles: string[];
+			};
+			works: MediaWork[];
+		} | null;
+
+		if (!refresh.acquired && cached) {
+			personTmdbId = cached.summary.tmdbId;
+			summary = cached.summary;
+			canonicalWorks = cached.works;
+		} else {
+			try {
+				const payload = await fetchPersonFromTMDB(args.tmdbPersonId);
+				const personMediaReferences = buildPersonMediaReferences(payload);
+				await ctx.runMutation(internal.entities.syncPersonFromTMDB, {
+					tmdbPersonId: payload.id,
+					name: payload.name,
+					profilePath: payload.profile_path,
+					references: personMediaReferences
+				});
+
+				const summaryData = buildPersonMediaWorksFromTMDB(payload, {
+					mediaFilter: 'all',
+					roleFilter: 'all'
+				});
+				personTmdbId = payload.id;
+				summary = {
+					tmdbId: payload.id,
+					name: payload.name,
+					profilePath: payload.profile_path,
+					bio: payload.biography ?? null,
+					movieCreditCount: summaryData.movieCreditCount,
+					tvCreditCount: summaryData.tvCreditCount,
+					roles: summaryData.roles
+				};
+				canonicalWorks = summaryData.works;
+
+				await ctx.runMutation(internal.entities.storePersonPageCache, {
+					tmdbPersonId: payload.id,
+					summary,
+					works: canonicalWorks,
+					fetchedAt: now
+				});
+			} catch (error) {
+				if (!cached) {
+					throw error;
+				}
+				await ctx.runMutation(internal.entities.deferPersonPageRefresh, {
+					tmdbPersonId: args.tmdbPersonId,
+					until: now + ENTITY_PAGE_REFRESH_FAILURE_BACKOFF_MS
+				});
+				personTmdbId = cached.summary.tmdbId;
+				summary = cached.summary;
+				canonicalWorks = cached.works;
+			}
+		}
+
+		const roleFilteredWorks = filterPersonWorksByRole(canonicalWorks, roleFilter);
 
 		const filtered = await annotateAndFilterMediaWorks(ctx, {
 			userId,
-			works: worksData.works,
-			mediaFilter: 'all',
+			works: roleFilteredWorks,
+			mediaFilter,
 			inLibraryOnly,
 			unwatchedOnly,
 			queryContext: {
-				personTmdbId: payload.id
+				personTmdbId
 			}
 		});
 
 		return {
-			summary: {
-				tmdbId: payload.id,
-				name: payload.name,
-				profilePath: payload.profile_path,
-				bio: payload.biography ?? null,
-				movieCreditCount: summaryData.movieCreditCount,
-				tvCreditCount: summaryData.tvCreditCount,
-				roles: summaryData.roles
-			},
+			summary,
 			works: filtered.slice(0, safeLimit)
 		};
 	}
@@ -531,51 +828,163 @@ export const getCompanyPageFromTMDB = action({
 		limit: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
-		const mediaFilter = (args.mediaFilter ?? 'all') as 'all' | 'movie' | 'tv';
+		const mediaFilter = (args.mediaFilter ?? 'all') as MediaFilter;
 		const inLibraryOnly = args.inLibraryOnly ?? false;
 		const unwatchedOnly = args.unwatchedOnly ?? false;
 		const safeLimit = clampMediaWorkLimit(args.limit);
 		const identity = await ctx.auth.getUserIdentity();
 		const userId = identity?.subject ?? null;
+		const now = Date.now();
 
-		const [payload, movieWorks, tvWorks] = await Promise.all([
-			fetchCompanyFromTMDB(args.tmdbCompanyId),
-			fetchCompanyMediaWorksFromTMDB(args.tmdbCompanyId, 'movie', COMPANY_GRAPH_MAX_DISCOVER_PAGES),
-			fetchCompanyMediaWorksFromTMDB(args.tmdbCompanyId, 'tv', COMPANY_GRAPH_MAX_DISCOVER_PAGES)
-		]);
+		let companyTmdbId = args.tmdbCompanyId;
+		let summary: {
+			tmdbId: number;
+			name: string;
+			logoPath: string | null;
+			bio: string | null;
+			movieCount: number;
+			tvCount: number;
+			roles: string[];
+		};
+		let canonicalWorks: MediaWork[];
 
-		const roles = movieWorks.length > 0 || tvWorks.length > 0 ? ['production'] : [];
-		const deduped = dedupeMediaWorks([...movieWorks, ...tvWorks]).sort(
-			sortMediaWorksByDateThenTitle
-		);
-		await ctx.runMutation(internal.entities.syncCompanyFromTMDB, {
-			tmdbCompanyId: payload.id,
-			name: payload.name,
-			logoPath: payload.logo_path,
-			references: toMediaReferences(deduped)
+		const refresh = await ctx.runMutation(internal.entities.tryAcquireCompanyPageRefresh, {
+			tmdbCompanyId: args.tmdbCompanyId,
+			now
 		});
+		const cached = refresh.cached as {
+			summary: {
+				tmdbId: number;
+				name: string;
+				logoPath: string | null;
+				bio: string | null;
+				movieCount: number;
+				tvCount: number;
+				roles: string[];
+			};
+			works: MediaWork[];
+		} | null;
+
+		if (!refresh.acquired && cached) {
+			companyTmdbId = cached.summary.tmdbId;
+			summary = cached.summary;
+			canonicalWorks = cached.works;
+		} else {
+			try {
+				const [payload, movieWorks, tvWorks] = await Promise.all([
+					fetchCompanyFromTMDB(args.tmdbCompanyId),
+					fetchCompanyMediaWorksFromTMDB(
+						args.tmdbCompanyId,
+						'movie',
+						COMPANY_GRAPH_MAX_DISCOVER_PAGES
+					),
+					fetchCompanyMediaWorksFromTMDB(args.tmdbCompanyId, 'tv', COMPANY_GRAPH_MAX_DISCOVER_PAGES)
+				]);
+
+				const roles = movieWorks.length > 0 || tvWorks.length > 0 ? ['production'] : [];
+				const deduped = dedupeMediaWorks([...movieWorks, ...tvWorks]).sort(
+					sortMediaWorksByDateThenTitle
+				);
+
+				await ctx.runMutation(internal.entities.syncCompanyFromTMDB, {
+					tmdbCompanyId: payload.id,
+					name: payload.name,
+					logoPath: payload.logo_path,
+					references: toMediaReferences(deduped)
+				});
+
+				companyTmdbId = payload.id;
+				summary = {
+					tmdbId: payload.id,
+					name: payload.name,
+					logoPath: payload.logo_path,
+					bio: payload.description ?? null,
+					movieCount: movieWorks.length,
+					tvCount: tvWorks.length,
+					roles
+				};
+				canonicalWorks = deduped;
+
+				await ctx.runMutation(internal.entities.storeCompanyPageCache, {
+					tmdbCompanyId: payload.id,
+					summary,
+					works: canonicalWorks,
+					fetchedAt: now
+				});
+			} catch (error) {
+				if (!cached) {
+					throw error;
+				}
+				await ctx.runMutation(internal.entities.deferCompanyPageRefresh, {
+					tmdbCompanyId: args.tmdbCompanyId,
+					until: now + ENTITY_PAGE_REFRESH_FAILURE_BACKOFF_MS
+				});
+				companyTmdbId = cached.summary.tmdbId;
+				summary = cached.summary;
+				canonicalWorks = cached.works;
+			}
+		}
+
 		const filtered = await annotateAndFilterMediaWorks(ctx, {
 			userId,
-			works: deduped,
+			works: canonicalWorks,
 			mediaFilter,
 			inLibraryOnly,
 			unwatchedOnly,
 			queryContext: {
-				companyTmdbId: payload.id
+				companyTmdbId
 			}
 		});
 
 		return {
-			summary: {
-				tmdbId: payload.id,
-				name: payload.name,
-				logoPath: payload.logo_path,
-				bio: payload.description ?? null,
-				movieCount: movieWorks.length,
-				tvCount: tvWorks.length,
-				roles
-			},
+			summary,
 			works: filtered.slice(0, safeLimit)
 		};
+	}
+});
+
+export const cleanupEntityPageCache = internalMutation({
+	args: {
+		now: v.number(),
+		limit: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const safeLimit = Math.max(1, Math.min(args.limit ?? ENTITY_PAGE_CACHE_PRUNE_BATCH_SIZE, 1000));
+		const staleBefore = args.now - ENTITY_PAGE_CACHE_RETENTION_MS;
+
+		const [stalePeople, staleCompanies] = await Promise.all([
+			ctx.db
+				.query('personPageCache')
+				.withIndex('by_fetchedAt', (q) => q.lt('fetchedAt', staleBefore))
+				.take(safeLimit),
+			ctx.db
+				.query('companyPageCache')
+				.withIndex('by_fetchedAt', (q) => q.lt('fetchedAt', staleBefore))
+				.take(safeLimit)
+		]);
+
+		for (const row of stalePeople) {
+			await ctx.db.delete(row._id);
+		}
+		for (const row of staleCompanies) {
+			await ctx.db.delete(row._id);
+		}
+
+		return {
+			now: args.now,
+			personDeleted: stalePeople.length,
+			companyDeleted: staleCompanies.length
+		};
+	}
+});
+
+export const cleanupEntityPageCacheArtifacts = internalAction({
+	args: {},
+	handler: async (ctx) => {
+		const now = Date.now();
+		return await ctx.runMutation(internal.entities.cleanupEntityPageCache, {
+			now,
+			limit: ENTITY_PAGE_CACHE_PRUNE_BATCH_SIZE
+		});
 	}
 });

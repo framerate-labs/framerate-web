@@ -1,3 +1,10 @@
+export interface TMDBPersonKnownForItem {
+	id?: number;
+	media_type?: 'movie' | 'tv' | 'person';
+	title?: string;
+	name?: string;
+}
+
 export interface TMDBSearchItem {
 	id: number;
 	media_type: 'movie' | 'tv' | 'person';
@@ -7,6 +14,9 @@ export interface TMDBSearchItem {
 	original_name?: string;
 	overview?: string;
 	poster_path: string | null;
+	profile_path?: string | null;
+	known_for_department?: string | null;
+	known_for?: TMDBPersonKnownForItem[];
 	backdrop_path: string | null;
 	popularity: number;
 	release_date?: string;
@@ -22,11 +32,13 @@ export interface TMDBSearchResponse {
 
 export interface NormalizedSearchItem {
 	id: number;
-	mediaType: 'movie' | 'tv';
+	mediaType: 'movie' | 'tv' | 'person';
 	title: string;
 	originalTitle: string;
 	overview?: string;
 	posterPath: string | null;
+	knownForDepartment: string | null;
+	releaseYear: number | null;
 	backdropPath: string | null;
 	popularity: number;
 	releaseDate: string | null;

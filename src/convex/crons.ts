@@ -22,6 +22,14 @@ crons.interval('refresh trending cache', { hours: 6 }, internal.trending.refresh
 // Solves: unbounded growth of search cache/bucket rows.
 crons.interval('cleanup search artifacts', { minutes: 30 }, internal.search.cleanupSearchArtifacts);
 
+// Prune long-idle entity cache rows.
+// Solves: unbounded growth of person/company page cache.
+crons.interval(
+	'cleanup entity page cache',
+	{ hours: 12 },
+	internal.entities.cleanupEntityPageCacheArtifacts
+);
+
 // Seed stale media rows into the persistent detail refresh queue.
 // Solves: proactive recency maintenance while allowing queue-level retries/visibility.
 crons.interval(

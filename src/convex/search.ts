@@ -11,16 +11,18 @@ const MAX_LIMIT = 20;
 const MIN_QUERY_LENGTH = 2;
 const MAX_QUERY_LENGTH = 100;
 
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const CACHE_RETENTION_MS = 30 * 60 * 1000;
+const CACHE_TTL_MS = 30 * 60 * 1000;
+const CACHE_RETENTION_MS = 60 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 25;
 const RATE_LIMIT_RETENTION_MS = 10 * 60 * 1000;
 const normalizedSearchItemValidator = v.object({
 	id: v.number(),
-	mediaType: v.union(v.literal('movie'), v.literal('tv')),
+	mediaType: v.union(v.literal('movie'), v.literal('tv'), v.literal('person')),
 	title: v.string(),
-	posterPath: v.union(v.string(), v.null())
+	posterPath: v.union(v.string(), v.null()),
+	knownForDepartment: v.union(v.string(), v.null()),
+	releaseYear: v.union(v.number(), v.null())
 });
 
 function normalizeQuery(query: string): string {
@@ -101,7 +103,9 @@ export const presentSearchResults = internalQuery({
 				id: item.id,
 				mediaType: item.mediaType,
 				title: item.title,
-				posterPath: item.posterPath
+				posterPath: item.posterPath,
+				knownForDepartment: item.knownForDepartment,
+				releaseYear: item.releaseYear
 			}))
 		);
 	}
@@ -179,7 +183,7 @@ export const enforceRateLimit = internalMutation({
 });
 
 /**
- * Action: Search media (movies + TV only) via TMDB.
+ * Action: Search media (movies + TV + people) via TMDB.
  *
  * - Requires authentication to reduce anonymous abuse
  * - Enforces per-user request rate limits
@@ -225,7 +229,9 @@ export const searchMedia = action({
 			id: item.id,
 			mediaType: item.mediaType,
 			title: item.title,
-			posterPath: item.posterPath
+			posterPath: item.posterPath,
+			knownForDepartment: item.knownForDepartment,
+			releaseYear: item.releaseYear
 		}));
 
 		await ctx.runMutation(internal.search.storeCachedResults, {
