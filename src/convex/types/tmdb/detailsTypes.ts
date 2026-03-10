@@ -52,6 +52,36 @@ export interface TMDBCredits {
 	crew: CrewMember[];
 }
 
+export interface AggregateCastRole {
+	credit_id: string;
+	character: string;
+	episode_count: number;
+}
+
+export interface AggregateCrewJob {
+	credit_id: string;
+	job: string;
+	department: string;
+	episode_count: number;
+}
+
+export interface AggregateCastMember extends PersonCredit {
+	order: number;
+	total_episode_count: number;
+	roles: AggregateCastRole[];
+}
+
+export interface AggregateCrewMember extends PersonCredit {
+	department: string;
+	total_episode_count: number;
+	jobs: AggregateCrewJob[];
+}
+
+export interface TMDBAggregateCredits {
+	cast: AggregateCastMember[];
+	crew: AggregateCrewMember[];
+}
+
 export interface TMDBMediaBase {
 	adult: boolean;
 	backdrop_path: string | null;
@@ -149,6 +179,7 @@ export interface TMDBTVDetails extends TMDBMediaBase {
 	original_name: string;
 	seasons: TMDBSeason[];
 	type: string;
+	aggregate_credits?: TMDBAggregateCredits;
 }
 
 // Normalized output types (camelCase)

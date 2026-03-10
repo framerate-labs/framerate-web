@@ -1,0 +1,1 @@
+export const ANILIST_MEDIA_SCHEMA_VERSION = 1;

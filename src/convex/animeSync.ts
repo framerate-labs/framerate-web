@@ -41,6 +41,27 @@ const anilistStudioValidator = v.object({
 	isAnimationStudio: v.optional(v.boolean()),
 	isMain: v.optional(v.boolean())
 });
+const anilistVoiceActorValidator = v.object({
+	anilistStaffId: v.number(),
+	name: v.string(),
+	imageUrl: v.union(v.string(), v.null())
+});
+const anilistCharacterValidator = v.object({
+	anilistCharacterId: v.number(),
+	name: v.string(),
+	imageUrl: v.union(v.string(), v.null()),
+	role: v.union(v.string(), v.null()),
+	voiceActor: v.optional(v.union(anilistVoiceActorValidator, v.null())),
+	order: v.number()
+});
+const anilistStaffValidator = v.object({
+	anilistStaffId: v.number(),
+	name: v.string(),
+	imageUrl: v.union(v.string(), v.null()),
+	role: v.union(v.string(), v.null()),
+	department: v.union(v.string(), v.null()),
+	order: v.number()
+});
 const animeXrefCandidateValidator = v.object({
 	anilistId: v.number(),
 	score: v.number(),
@@ -58,6 +79,8 @@ const ANIME_SYNC_QUEUE_INTERACTIVE_SEASON_PRIORITY = 100;
 const ANILIST_PROVIDER = 'anilist';
 const CLAIMABLE_QUEUE_STATES = ['queued', 'retry'] as const;
 const PRUNABLE_QUEUE_STATES = ['error', 'retry', 'idle'] as const;
+const ANIME_SYNC_QUEUE_RUNNING_STALE_MS = 30 * 60_000;
+const ANIME_SYNC_XREF_RETRY_INTERVAL_MS = 24 * 60 * 60_000;
 
 type AnimeSyncQueueRow = Doc<'animeSyncQueue'>;
 type AnimeApiBudgetRow = Doc<'animeApiBudget'>;
@@ -78,6 +101,15 @@ function isBetterQueueCandidate(
 		return nextCandidate.nextAttemptAt < currentBest.nextAttemptAt;
 	}
 	return (nextCandidate.lastRequestedAt ?? 0) > (currentBest.lastRequestedAt ?? 0);
+}
+
+function isStaleRunningAnimeQueueRow(
+	row: Pick<AnimeSyncQueueRow, 'state' | 'lastStartedAt' | 'lastRequestedAt'>,
+	now: number
+): boolean {
+	if (row.state !== 'running') return false;
+	const startedAt = row.lastStartedAt ?? row.lastRequestedAt ?? 0;
+	return startedAt > 0 && startedAt + ANIME_SYNC_QUEUE_RUNNING_STALE_MS <= now;
 }
 
 async function getAniListBudgetRow(ctx: MutationCtx): Promise<AnimeApiBudgetRow | null> {
@@ -190,16 +222,22 @@ async function upsertAnimeSyncQueueRequestHandler(
 		});
 		return { queued: true, inserted: true, rowId: id };
 	}
+	const isStaleRunning = isStaleRunningAnimeQueueRow(existing, args.now);
 
 	const isStale = (existing.nextRefreshAt ?? 0) <= args.now || existing.lastSuccessAt == null;
 	const shouldQueue =
 		force ||
 		isStale ||
+		isStaleRunning ||
 		existing.state === 'error' ||
 		existing.state === 'retry' ||
 		existing.state === 'queued';
 	const nextState =
-		existing.state === 'running' && !force ? 'running' : shouldQueue ? 'queued' : existing.state;
+		existing.state === 'running' && !force && !isStaleRunning
+			? 'running'
+			: shouldQueue
+				? 'queued'
+				: existing.state;
 	const nextPriority = Math.max(existing.priority, args.priority);
 	const nextAttemptAt =
 		nextState === 'queued'
@@ -238,7 +276,10 @@ async function enqueueStaleAnimeSyncQueueJobsHandler(
 	for (const row of rows) {
 		if (enqueued >= limit) break;
 		if (args.jobType && row.jobType !== args.jobType) continue;
-		if (row.state === 'running' || row.state === 'queued' || row.state === 'retry') continue;
+		if (row.state === 'queued' || row.state === 'retry') continue;
+		if (row.state === 'running' && !isStaleRunningAnimeQueueRow(row as AnimeSyncQueueRow, now)) {
+			continue;
+		}
 		await ctx.db.patch(row._id, {
 			state: 'queued',
 			nextAttemptAt: now,
@@ -276,7 +317,10 @@ async function claimNextAnimeSyncQueueJobHandler(
 		.withIndex('by_syncKey', (q) => q.eq('syncKey', picked.syncKey))
 		.collect();
 	const activeRunning = rowsForSyncKey.find(
-		(row) => row.state === 'running' && row._id !== pickedId
+		(row) =>
+			row.state === 'running' &&
+			row._id !== pickedId &&
+			!isStaleRunningAnimeQueueRow(row as AnimeSyncQueueRow, args.now)
 	);
 	if (activeRunning) {
 		for (const row of rowsForSyncKey) {
@@ -291,7 +335,16 @@ async function claimNextAnimeSyncQueueJobHandler(
 	}
 	const freshPicked = await ctx.db.get(picked._id);
 	if (!freshPicked) return null;
-	if (freshPicked.state === 'running') return null;
+	if (freshPicked.state === 'running') {
+		if (isStaleRunningAnimeQueueRow(freshPicked as AnimeSyncQueueRow, args.now)) {
+			await ctx.db.patch(freshPicked._id, {
+				state: 'queued',
+				nextAttemptAt: Math.min(freshPicked.nextAttemptAt ?? args.now, args.now),
+				lastRequestedAt: args.now
+			});
+		}
+		return null;
+	}
 	if (
 		(freshPicked.state !== 'queued' && freshPicked.state !== 'retry') ||
 		(freshPicked.nextAttemptAt ?? 0) > args.now
@@ -805,6 +858,25 @@ export const getAnimeSeasonEnqueueStatusByTMDB = internalQuery({
 			.query('animeSyncQueue')
 			.withIndex('by_syncKey', (q) => q.eq('syncKey', syncKey))
 			.unique();
+		const xrefRow = await ctx.db
+			.query('animeXref')
+			.withIndex('by_tmdbType_tmdbId', (q) =>
+				q.eq('tmdbType', args.tmdbType).eq('tmdbId', args.tmdbId)
+			)
+			.unique();
+		const anilistId = xrefRow?.anilistId ?? null;
+		const anilistMediaRow =
+			typeof anilistId === 'number'
+				? await ctx.db
+						.query('anilistMedia')
+						.withIndex('by_anilistId', (q) => q.eq('anilistId', anilistId))
+						.unique()
+				: null;
+		const hasFreshAniListMedia =
+			anilistMediaRow != null &&
+			Array.isArray(anilistMediaRow.characters) &&
+			Array.isArray(anilistMediaRow.staff);
+		const needsAniListMediaRefresh = anilistId != null && hasFreshAniListMedia === false;
 
 		if (!queueRow) {
 			return {
@@ -816,23 +888,44 @@ export const getAnimeSeasonEnqueueStatusByTMDB = internalQuery({
 		}
 
 		const isDue = (queueRow.nextRefreshAt ?? 0) <= args.now || queueRow.lastSuccessAt == null;
+		const isStaleRunning = isStaleRunningAnimeQueueRow(queueRow as AnimeSyncQueueRow, args.now);
 		const isRecoverableState =
-			queueRow.state === 'error' || queueRow.state === 'retry' || queueRow.state === 'idle';
+			queueRow.state === 'error' ||
+			queueRow.state === 'retry' ||
+			isStaleRunning;
+		const lastAnimeAttemptAt = Math.max(
+			queueRow.lastSuccessAt ?? 0,
+			queueRow.lastFinishedAt ?? 0,
+			queueRow.lastRequestedAt ?? 0
+		);
+		const missingXrefRetryDue =
+			anilistId == null &&
+			queueRow.lastSuccessAt != null &&
+			lastAnimeAttemptAt <= args.now - ANIME_SYNC_XREF_RETRY_INTERVAL_MS;
+		const hasActiveWork =
+			queueRow.state === 'queued' ||
+			(queueRow.state === 'running' && isStaleRunning !== true);
 		const shouldEnqueue =
-			queueRow.state === 'queued' || queueRow.state === 'running'
+			hasActiveWork
 				? false
-				: isDue || isRecoverableState;
+				: isDue || isRecoverableState || needsAniListMediaRefresh || missingXrefRetryDue;
 
 		return {
 			found: true,
 			isAnime: true as const,
 			shouldEnqueue,
 			reason: shouldEnqueue
-				? ('queue_missing_or_stale' as const)
+				? needsAniListMediaRefresh
+					? ('anilist_media_missing_or_stale' as const)
+					: missingXrefRetryDue
+						? ('missing_xref_retry_due' as const)
+					: ('queue_missing_or_stale' as const)
 				: ('queue_fresh_or_active' as const),
 			queueState: queueRow.state,
 			nextRefreshAt: queueRow.nextRefreshAt ?? null,
-			lastSuccessAt: queueRow.lastSuccessAt ?? null
+			lastSuccessAt: queueRow.lastSuccessAt ?? null,
+			anilistId,
+			hasFreshAniListMedia
 		};
 	}
 });
@@ -980,7 +1073,9 @@ export const upsertAniListMediaBatch = internalMutation({
 				seasonYear: v.optional(v.number()),
 				episodes: v.optional(v.number()),
 				description: v.optional(v.string()),
-				studios: v.optional(v.array(anilistStudioValidator))
+				studios: v.optional(v.array(anilistStudioValidator)),
+				characters: v.optional(v.array(anilistCharacterValidator)),
+				staff: v.optional(v.array(anilistStaffValidator))
 			})
 		),
 		schemaVersion: v.number()
@@ -1283,6 +1378,31 @@ export const requestSeasonRefreshForTMDB: ReturnType<typeof action> = action({
 				reason: eligibility.found ? 'not_anime' : 'missing_media_row'
 			};
 		}
+		let effectiveForce = args.force === true;
+		if (effectiveForce !== true) {
+			const enqueueStatus = (await ctx.runQuery(
+				internal.animeSync.getAnimeSeasonEnqueueStatusByTMDB,
+				{
+					tmdbType: args.tmdbType,
+					tmdbId: args.tmdbId,
+					now
+				}
+			)) as {
+				shouldEnqueue?: boolean;
+				reason?: string;
+			} | null;
+			const shouldForceForEnrichment =
+				enqueueStatus?.reason === 'anilist_media_missing_or_stale' ||
+				enqueueStatus?.reason === 'missing_xref_retry_due';
+			effectiveForce = shouldForceForEnrichment;
+			if (enqueueStatus?.shouldEnqueue !== true) {
+				return {
+					ok: true,
+					queued: false,
+					reason: enqueueStatus?.reason ?? 'queue_fresh_or_active'
+				};
+			}
+		}
 
 		const queued = await ctx.runMutation(internal.animeSync.upsertAnimeSyncQueueRequest, {
 			jobType: 'season',
@@ -1290,7 +1410,7 @@ export const requestSeasonRefreshForTMDB: ReturnType<typeof action> = action({
 			tmdbId: args.tmdbId,
 			priority: ANIME_SYNC_QUEUE_INTERACTIVE_SEASON_PRIORITY,
 			now,
-			force: args.force
+			force: effectiveForce
 		});
 
 		if (queued.queued) {

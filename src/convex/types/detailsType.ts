@@ -46,6 +46,52 @@ export type StoredTVSeasonSummary = {
 	voteAverage: number | null;
 };
 
+export type StoredCastCredit = {
+	id: number;
+	adult: boolean;
+	gender: number;
+	knownForDepartment: string;
+	name: string;
+	originalName: string;
+	popularity: number;
+	profilePath: string | null;
+	character: string;
+	creditId: string;
+	order: number;
+	castId?: number | null;
+};
+
+export type StoredCrewCredit = {
+	id: number;
+	adult: boolean;
+	gender: number;
+	knownForDepartment: string;
+	name: string;
+	originalName: string;
+	popularity: number;
+	profilePath: string | null;
+	creditId: string;
+	department: string;
+	job: string;
+};
+
+export type CreditCoverage = 'preview' | 'full';
+export type CreditSource = 'tmdb' | 'anilist';
+
+export type CreditCacheSnapshot = {
+	mediaType: MediaType;
+	tmdbId: number;
+	source: CreditSource;
+	seasonKey: string | null;
+	coverage: CreditCoverage;
+	castCredits: StoredCastCredit[];
+	crewCredits: StoredCrewCredit[];
+	castTotal: number;
+	crewTotal: number;
+	fetchedAt: number;
+	nextRefreshAt: number;
+};
+
 export type DetailRefreshDecision = {
 	needsRefresh: boolean;
 	hardStale: boolean;
@@ -68,6 +114,9 @@ export type StoredMediaSnapshot = {
 	posterPath?: string | null;
 	backdropPath?: string | null;
 	creatorCredits?: HeaderContributorInput[] | null;
+	castCredits?: StoredCastCredit[] | null;
+	crewCredits?: StoredCrewCredit[] | null;
+	isAnime?: boolean | null;
 };
 
 export type RefreshIfStaleResult = {
@@ -89,6 +138,15 @@ export type RefreshIfStaleArgs = {
 	id: number | string;
 	source?: 'tmdb' | 'trakt' | 'imdb';
 	force?: boolean;
+	skipDetailRefresh?: boolean;
+	creditSourceOverride?: CreditSource;
+	creditCoverageTarget?: CreditCoverage;
+	creditSeasonContext?: {
+		seasonKey: string;
+		tmdbSeasonNumber?: number | null;
+		seasonOrdinal?: number | null;
+		memberAnilistIds?: number[] | null;
+	} | null;
 };
 
 export type RefreshCandidate = {
@@ -112,8 +170,9 @@ export type StoredMovieDoc = NonNullable<Awaited<ReturnType<typeof getMovieBySou
 	detailFetchedAt?: number | null;
 	nextRefreshAt?: number;
 	refreshErrorCount?: number;
-	lastRefreshErrorAt?: number | null;
 	creatorCredits?: HeaderContributorInput[];
+	castCredits?: StoredCastCredit[];
+	crewCredits?: StoredCrewCredit[];
 };
 
 export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySource>>> & {
@@ -129,8 +188,9 @@ export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySourc
 	detailFetchedAt?: number | null;
 	nextRefreshAt?: number;
 	refreshErrorCount?: number;
-	lastRefreshErrorAt?: number | null;
 	creatorCredits?: HeaderContributorInput[];
+	castCredits?: StoredCastCredit[];
+	crewCredits?: StoredCrewCredit[];
 };
 
 export type SourceIdentifiers = {
@@ -161,6 +221,8 @@ export type InsertMediaArgs = {
 	isAnime: boolean;
 	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
+	castCredits: StoredCastCredit[];
+	crewCredits: StoredCrewCredit[];
 };
 
 export type MovieInsertDoc = SourceIdentifiers & {
@@ -172,10 +234,11 @@ export type MovieInsertDoc = SourceIdentifiers & {
 	detailFetchedAt: number;
 	nextRefreshAt: number;
 	refreshErrorCount: number;
-	lastRefreshErrorAt: number | null;
 	isAnime: boolean;
 	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
+	castCredits: StoredCastCredit[];
+	crewCredits: StoredCrewCredit[];
 	overview: string | null;
 	status: string;
 	runtime: number | null;
@@ -190,10 +253,11 @@ export type TVInsertDoc = SourceIdentifiers & {
 	detailFetchedAt: number;
 	nextRefreshAt: number;
 	refreshErrorCount: number;
-	lastRefreshErrorAt: number | null;
 	isAnime: boolean;
 	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
+	castCredits: StoredCastCredit[];
+	crewCredits: StoredCrewCredit[];
 	overview: string | null;
 	status: string;
 	numberOfSeasons?: number | null;

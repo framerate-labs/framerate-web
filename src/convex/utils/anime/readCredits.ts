@@ -1,6 +1,15 @@
 import type { QueryCtx } from '../../_generated/server';
-import type { AniListMediaDoc, AniListStudioDoc } from '../../types/animeReadTypes';
-import type { HeaderContributorInput } from '../../types/detailsType';
+import type {
+	AniListCharacterDoc,
+	AniListMediaDoc,
+	AniListStaffDoc,
+	AniListStudioDoc
+} from '../../types/animeReadTypes';
+import type {
+	HeaderContributorInput,
+	StoredCastCredit,
+	StoredCrewCredit
+} from '../../types/detailsType';
 import type { MediaType } from '../../types/mediaTypes';
 
 function scoreStudio(studio: AniListStudioDoc): number {
@@ -57,4 +66,78 @@ export async function getAnimeXrefByTMDB(
 		)
 		.unique();
 	return row ?? null;
+}
+
+function sanitizeName(value: string | null | undefined): string {
+	const trimmed = value?.trim() ?? '';
+	return trimmed.length > 0 ? trimmed : '';
+}
+
+function toAniListCastCredit(row: AniListCharacterDoc): StoredCastCredit | null {
+	const characterName = sanitizeName(row.name);
+	if (characterName.length === 0) return null;
+	const voiceActorName = sanitizeName(row.voiceActor?.name);
+	const characterRole = sanitizeName(row.role);
+	const characterLabel =
+		voiceActorName.length > 0
+			? `Voice: ${voiceActorName}`
+			: characterRole.length > 0
+				? characterRole
+				: 'Character';
+	return {
+		id: row.voiceActor?.anilistStaffId ?? -Math.abs(row.anilistCharacterId),
+		adult: false,
+		gender: 0,
+		knownForDepartment: 'Character',
+		name: characterName,
+		originalName: characterName,
+		popularity: 0,
+		profilePath: row.imageUrl ?? null,
+		character: characterLabel,
+		creditId: `anilist:character:${row.anilistCharacterId}`,
+		order: row.order,
+		castId: null
+	};
+}
+
+function toAniListCrewCredit(row: AniListStaffDoc): StoredCrewCredit | null {
+	const staffName = sanitizeName(row.name);
+	if (staffName.length === 0) return null;
+	const department = sanitizeName(row.department);
+	const role = sanitizeName(row.role);
+	return {
+		id: row.anilistStaffId,
+		adult: false,
+		gender: 0,
+		knownForDepartment: department.length > 0 ? department : 'Production',
+		name: staffName,
+		originalName: staffName,
+		popularity: 0,
+		profilePath: row.imageUrl ?? null,
+		creditId: `anilist:staff:${row.anilistStaffId}:${row.order}`,
+		department: department.length > 0 ? department : 'Production',
+		job: role.length > 0 ? role : 'Staff'
+	};
+}
+
+export function toAniListCastCredits(media: AniListMediaDoc | null): StoredCastCredit[] | null {
+	const rows = media?.characters ?? [];
+	if (rows.length === 0) return null;
+	const credits = rows
+		.slice()
+		.sort((a, b) => a.order - b.order)
+		.map(toAniListCastCredit)
+		.filter((row): row is StoredCastCredit => row !== null);
+	return credits.length > 0 ? credits : null;
+}
+
+export function toAniListCrewCredits(media: AniListMediaDoc | null): StoredCrewCredit[] | null {
+	const rows = media?.staff ?? [];
+	if (rows.length === 0) return null;
+	const credits = rows
+		.slice()
+		.sort((a, b) => a.order - b.order)
+		.map(toAniListCrewCredit)
+		.filter((row): row is StoredCrewCredit => row !== null);
+	return credits.length > 0 ? credits : null;
 }

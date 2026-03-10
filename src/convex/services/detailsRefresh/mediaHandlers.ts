@@ -31,7 +31,9 @@ const MOVIE_SYNC_POLICY = {
 	runtime: 'tmdb_authoritative',
 	isAnime: 'tmdb_authoritative',
 	isAnimeSource: 'tmdb_authoritative',
-	creatorCredits: 'tmdb_authoritative'
+	creatorCredits: 'tmdb_authoritative',
+	castCredits: 'tmdb_authoritative',
+	crewCredits: 'tmdb_authoritative'
 } as const satisfies Record<string, SyncPolicy>;
 
 const TV_SYNC_POLICY = {
@@ -48,7 +50,9 @@ const TV_SYNC_POLICY = {
 	nextEpisodeToAir: 'tmdb_authoritative',
 	isAnime: 'tmdb_authoritative',
 	isAnimeSource: 'tmdb_authoritative',
-	creatorCredits: 'tmdb_authoritative'
+	creatorCredits: 'tmdb_authoritative',
+	castCredits: 'tmdb_authoritative',
+	crewCredits: 'tmdb_authoritative'
 } as const satisfies Record<string, SyncPolicy>;
 
 export async function getStoredMediaHandler(
@@ -71,8 +75,11 @@ export async function getStoredMediaHandler(
 			releaseDate: movie.releaseDate ?? null,
 			overview: movie.overview ?? null,
 			status: movie.status ?? null,
-			runtime: movie.runtime ?? null,
-			creatorCredits: movie.creatorCredits
+			runtime: movie.runtime,
+			creatorCredits: movie.creatorCredits,
+			castCredits: movie.castCredits,
+			crewCredits: movie.crewCredits,
+			isAnime: movie.isAnime ?? null
 		} satisfies StoredMediaSnapshot;
 	}
 
@@ -87,12 +94,15 @@ export async function getStoredMediaHandler(
 		releaseDate: tvShow.releaseDate ?? null,
 		overview: tvShow.overview ?? null,
 		status: tvShow.status ?? null,
-		numberOfSeasons: tvShow.numberOfSeasons ?? null,
-		seasons: tvShow.seasons ?? null,
-		lastAirDate: tvShow.lastAirDate ?? null,
-		lastEpisodeToAir: tvShow.lastEpisodeToAir ?? null,
-		nextEpisodeToAir: tvShow.nextEpisodeToAir ?? null,
-		creatorCredits: tvShow.creatorCredits
+		numberOfSeasons: tvShow.numberOfSeasons,
+		seasons: tvShow.seasons,
+		lastAirDate: tvShow.lastAirDate,
+		lastEpisodeToAir: tvShow.lastEpisodeToAir,
+		nextEpisodeToAir: tvShow.nextEpisodeToAir,
+		creatorCredits: tvShow.creatorCredits,
+		castCredits: tvShow.castCredits,
+		crewCredits: tvShow.crewCredits,
+		isAnime: tvShow.isAnime ?? null
 	} satisfies StoredMediaSnapshot;
 }
 
@@ -155,7 +165,6 @@ export async function recordRefreshFailureHandler(
 		const nextRefreshAt = args.failedAt + computeRefreshErrorBackoffMs(nextErrorCount);
 		await ctx.db.patch(movie._id, {
 			refreshErrorCount: nextErrorCount,
-			lastRefreshErrorAt: args.failedAt,
 			nextRefreshAt
 		});
 		return;
@@ -167,7 +176,6 @@ export async function recordRefreshFailureHandler(
 	const nextRefreshAt = args.failedAt + computeRefreshErrorBackoffMs(nextErrorCount);
 	await ctx.db.patch(tvShow._id, {
 		refreshErrorCount: nextErrorCount,
-		lastRefreshErrorAt: args.failedAt,
 		nextRefreshAt
 	});
 }

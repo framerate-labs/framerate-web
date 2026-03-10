@@ -50,6 +50,30 @@ export type AniListStudio = {
 	isMain?: boolean;
 };
 
+export type AniListCharacterVoiceActor = {
+	anilistStaffId: number;
+	name: string;
+	imageUrl: string | null;
+};
+
+export type AniListCharacter = {
+	anilistCharacterId: number;
+	name: string;
+	imageUrl: string | null;
+	role: string | null;
+	voiceActor?: AniListCharacterVoiceActor | null;
+	order: number;
+};
+
+export type AniListStaff = {
+	anilistStaffId: number;
+	name: string;
+	imageUrl: string | null;
+	role: string | null;
+	department: string | null;
+	order: number;
+};
+
 export type AniListDateParts = {
 	year: number | null;
 	month: number | null;
@@ -67,6 +91,31 @@ export type AniListMediaFormat =
 	| 'UNKNOWN'
 	| string;
 
+export type AniListRelationType =
+	| 'SEQUEL'
+	| 'PREQUEL'
+	| 'SIDE_STORY'
+	| 'PARENT'
+	| 'SUMMARY'
+	| 'ALTERNATIVE'
+	| 'SPIN_OFF'
+	| 'ADAPTATION'
+	| 'CHARACTER'
+	| 'OTHER'
+	| string;
+
+export type AniListMediaRelation = {
+	anilistId: number;
+	relationType: AniListRelationType;
+	type?: string | null;
+	title: AniListTitleSet;
+	format?: AniListMediaFormat | null;
+	status?: string | null;
+	startDate?: AniListDateParts | null;
+	seasonYear?: number | null;
+	episodes?: number | null;
+};
+
 export type AniListMediaCore = {
 	id: number;
 	type?: string | null;
@@ -79,6 +128,9 @@ export type AniListMediaCore = {
 	episodes?: number | null;
 	description?: string | null;
 	studios?: AniListStudio[];
+	characters?: AniListCharacter[];
+	staff?: AniListStaff[];
+	relations?: AniListMediaRelation[];
 };
 
 export type AnimeMatchCandidate = {

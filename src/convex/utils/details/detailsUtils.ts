@@ -11,6 +11,8 @@ import type {
 } from '../../types/detailsType';
 
 import {
+	sameCastCredits,
+	sameCrewCredits,
 	sameEpisodeSummary,
 	sameHeaderContributors,
 	sameTVSeasonSummaries,
@@ -28,6 +30,8 @@ type MovieSyncPolicyMap = {
 	isAnime: SyncPolicy;
 	isAnimeSource: SyncPolicy;
 	creatorCredits: SyncPolicy;
+	castCredits: SyncPolicy;
+	crewCredits: SyncPolicy;
 };
 
 type TVSyncPolicyMap = {
@@ -45,6 +49,8 @@ type TVSyncPolicyMap = {
 	isAnime: SyncPolicy;
 	isAnimeSource: SyncPolicy;
 	creatorCredits: SyncPolicy;
+	castCredits: SyncPolicy;
+	crewCredits: SyncPolicy;
 };
 
 function assignSourceIdentifier(
@@ -97,10 +103,11 @@ export function buildMovieInsertDoc(
 		detailFetchedAt: args.detailFetchedAt,
 		nextRefreshAt: args.nextRefreshAt,
 		refreshErrorCount: 0,
-		lastRefreshErrorAt: null,
 		isAnime: args.isAnime,
 		isAnimeSource: args.isAnimeSource,
 		creatorCredits: incomingCreatorCredits,
+		castCredits: args.castCredits,
+		crewCredits: args.crewCredits,
 		overview: args.overview,
 		status: args.status,
 		runtime: args.runtime
@@ -122,10 +129,11 @@ export function buildTVInsertDoc(
 		detailFetchedAt: args.detailFetchedAt,
 		nextRefreshAt: args.nextRefreshAt,
 		refreshErrorCount: 0,
-		lastRefreshErrorAt: null,
 		isAnime: args.isAnime,
 		isAnimeSource: args.isAnimeSource,
 		creatorCredits: incomingCreatorCredits,
+		castCredits: args.castCredits,
+		crewCredits: args.crewCredits,
 		overview: args.overview,
 		status: args.status,
 		numberOfSeasons: args.numberOfSeasons,
@@ -181,9 +189,6 @@ export function buildMoviePatch(
 	if ((existing.refreshErrorCount ?? 0) !== 0) {
 		patch.refreshErrorCount = 0;
 	}
-	if (existing.lastRefreshErrorAt === undefined) {
-		patch.lastRefreshErrorAt = null;
-	}
 
 	setPatchByPolicy(patch, 'overview', syncPolicy.overview, existing.overview, args.overview);
 	setPatchByPolicy(patch, 'status', syncPolicy.status, existing.status ?? '', args.status);
@@ -206,6 +211,26 @@ export function buildMoviePatch(
 		!sameHeaderContributors(existing.creatorCredits ?? [], incomingCreatorCredits)
 	) {
 		patch.creatorCredits = incomingCreatorCredits;
+	}
+	if (
+		shouldApplySyncPolicy(
+			syncPolicy.castCredits,
+			existing.castCredits ?? [],
+			args.castCredits
+		) &&
+		!sameCastCredits(existing.castCredits ?? [], args.castCredits)
+	) {
+		patch.castCredits = args.castCredits;
+	}
+	if (
+		shouldApplySyncPolicy(
+			syncPolicy.crewCredits,
+			existing.crewCredits ?? [],
+			args.crewCredits
+		) &&
+		!sameCrewCredits(existing.crewCredits ?? [], args.crewCredits)
+	) {
+		patch.crewCredits = args.crewCredits;
 	}
 
 	return patch;
@@ -253,9 +278,6 @@ export function buildTVPatch(
 
 	if ((existing.refreshErrorCount ?? 0) !== 0) {
 		patch.refreshErrorCount = 0;
-	}
-	if (existing.lastRefreshErrorAt === undefined) {
-		patch.lastRefreshErrorAt = null;
 	}
 
 	setPatchByPolicy(patch, 'overview', syncPolicy.overview, existing.overview, args.overview);
@@ -320,6 +342,26 @@ export function buildTVPatch(
 		!sameHeaderContributors(existing.creatorCredits ?? [], incomingCreatorCredits)
 	) {
 		patch.creatorCredits = incomingCreatorCredits;
+	}
+	if (
+		shouldApplySyncPolicy(
+			syncPolicy.castCredits,
+			existing.castCredits ?? [],
+			args.castCredits
+		) &&
+		!sameCastCredits(existing.castCredits ?? [], args.castCredits)
+	) {
+		patch.castCredits = args.castCredits;
+	}
+	if (
+		shouldApplySyncPolicy(
+			syncPolicy.crewCredits,
+			existing.crewCredits ?? [],
+			args.crewCredits
+		) &&
+		!sameCrewCredits(existing.crewCredits ?? [], args.crewCredits)
+	) {
+		patch.crewCredits = args.crewCredits;
 	}
 
 	return patch;

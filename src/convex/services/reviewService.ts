@@ -69,8 +69,7 @@ function createMovieSeedData(args: SeedArgs) {
 		detailSchemaVersion: 0,
 		detailFetchedAt: null,
 		nextRefreshAt: args.now,
-		refreshErrorCount: 0,
-		lastRefreshErrorAt: null
+		refreshErrorCount: 0
 	};
 	applyExternalSourceId(movieData, args.source, args.externalId);
 	return movieData;
@@ -93,8 +92,7 @@ function createTVSeedData(args: SeedArgs) {
 		detailSchemaVersion: 0,
 		detailFetchedAt: null,
 		nextRefreshAt: args.now,
-		refreshErrorCount: 0,
-		lastRefreshErrorAt: null
+		refreshErrorCount: 0
 	};
 	applyExternalSourceId(tvShowData, args.source, args.externalId);
 	return tvShowData;

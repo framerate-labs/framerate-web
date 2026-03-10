@@ -9,6 +9,7 @@ import type { StoredAnimeRefreshSignals } from '../../utils/anime/sync';
 import { internal } from '../../_generated/api';
 import { daysSinceDate } from '../../utils/anime/dateUtils';
 import { buildEpisodeBoundsBySeasonFromCacheRows } from '../../utils/anime/episodeUtils';
+import { ANILIST_MEDIA_SCHEMA_VERSION } from '../../utils/anime/anilistMediaSchema';
 import { animeTitleSyncLeaseKey, createAnimeSyncLeaseOwner } from '../../utils/anime/sync';
 import {
 	createAniListRequestMetrics,
@@ -67,7 +68,29 @@ function toCachePayload(media: AniListMediaCore) {
 						isAnimationStudio: studio.isAnimationStudio,
 						isMain: studio.isMain
 					}))
-				: undefined
+				: undefined,
+		characters: (media.characters ?? []).map((character) => ({
+			anilistCharacterId: character.anilistCharacterId,
+			name: character.name,
+			imageUrl: character.imageUrl ?? null,
+			role: character.role ?? null,
+			voiceActor: character.voiceActor
+				? {
+						anilistStaffId: character.voiceActor.anilistStaffId,
+						name: character.voiceActor.name,
+						imageUrl: character.voiceActor.imageUrl ?? null
+					}
+				: null,
+			order: character.order
+		})),
+		staff: (media.staff ?? []).map((staff) => ({
+			anilistStaffId: staff.anilistStaffId,
+			name: staff.name,
+			imageUrl: staff.imageUrl ?? null,
+			role: staff.role ?? null,
+			department: staff.department ?? null,
+			order: staff.order
+		}))
 	};
 }
 
@@ -351,13 +374,13 @@ async function runAnimeSyncForTMDB(
 		} as const;
 	}
 
-	try {
-		const anchorMedia = await fetchAniListAnimeMediaById(anchorAnilistId, aniListMetrics);
-		await ctx.runMutation(internal.animeSync.upsertAniListMediaBatch, {
-			items: [toCachePayload(anchorMedia)],
-			schemaVersion: 1
-		});
-	} catch (error) {
+		try {
+			const anchorMedia = await fetchAniListAnimeMediaById(anchorAnilistId, aniListMetrics);
+			await ctx.runMutation(internal.animeSync.upsertAniListMediaBatch, {
+				items: [toCachePayload(anchorMedia)],
+				schemaVersion: ANILIST_MEDIA_SCHEMA_VERSION
+			});
+		} catch (error) {
 		console.warn('[anime] failed to cache AniList anchor media', {
 			tmdbType: args.tmdbType,
 			tmdbId: args.tmdbId,

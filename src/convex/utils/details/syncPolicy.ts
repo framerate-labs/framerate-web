@@ -1,5 +1,7 @@
 import type {
 	HeaderContributorInput,
+	StoredCastCredit,
+	StoredCrewCredit,
 	StoredEpisodeSummary,
 	StoredTVSeasonSummary,
 	SyncPolicy
@@ -108,6 +110,79 @@ export function sameHeaderContributors(
 	if (leftList.length !== rightList.length) return false;
 	for (let index = 0; index < leftList.length; index += 1) {
 		if (!sameHeaderContributor(leftList[index], rightList[index])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function sameCastCredit(
+	left: StoredCastCredit | null | undefined,
+	right: StoredCastCredit | null | undefined
+): boolean {
+	if (left === right) return true;
+	if (!left || !right) return false;
+	return (
+		left.id === right.id &&
+		left.adult === right.adult &&
+		left.gender === right.gender &&
+		left.knownForDepartment === right.knownForDepartment &&
+		left.name === right.name &&
+		left.originalName === right.originalName &&
+		left.popularity === right.popularity &&
+		left.profilePath === right.profilePath &&
+		left.character === right.character &&
+		left.creditId === right.creditId &&
+		left.order === right.order &&
+		(left.castId ?? null) === (right.castId ?? null)
+	);
+}
+
+export function sameCastCredits(
+	left: StoredCastCredit[] | null | undefined,
+	right: StoredCastCredit[] | null | undefined
+): boolean {
+	const leftList = left ?? [];
+	const rightList = right ?? [];
+	if (leftList.length !== rightList.length) return false;
+	for (let index = 0; index < leftList.length; index += 1) {
+		if (!sameCastCredit(leftList[index], rightList[index])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function sameCrewCredit(
+	left: StoredCrewCredit | null | undefined,
+	right: StoredCrewCredit | null | undefined
+): boolean {
+	if (left === right) return true;
+	if (!left || !right) return false;
+	return (
+		left.id === right.id &&
+		left.adult === right.adult &&
+		left.gender === right.gender &&
+		left.knownForDepartment === right.knownForDepartment &&
+		left.name === right.name &&
+		left.originalName === right.originalName &&
+		left.popularity === right.popularity &&
+		left.profilePath === right.profilePath &&
+		left.creditId === right.creditId &&
+		left.department === right.department &&
+		left.job === right.job
+	);
+}
+
+export function sameCrewCredits(
+	left: StoredCrewCredit[] | null | undefined,
+	right: StoredCrewCredit[] | null | undefined
+): boolean {
+	const leftList = left ?? [];
+	const rightList = right ?? [];
+	if (leftList.length !== rightList.length) return false;
+	for (let index = 0; index < leftList.length; index += 1) {
+		if (!sameCrewCredit(leftList[index], rightList[index])) {
 			return false;
 		}
 	}

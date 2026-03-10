@@ -181,12 +181,19 @@ export function evaluateStoredMovieDecision(
 		status?: string | null;
 		runtime?: number | null;
 		creatorCredits?: HeaderContributorInput[] | null;
+		castCredits?: unknown[] | null;
+		crewCredits?: unknown[] | null;
 	},
 	now: number,
 	detailSchemaVersion: number
 ): DetailRefreshDecision {
 	const hasTypeSpecificMissing =
-		stored.runtime === undefined || stored.creatorCredits === undefined;
+		stored.runtime === undefined ||
+		stored.creatorCredits === undefined ||
+		stored.castCredits === undefined ||
+		stored.castCredits === null ||
+		stored.crewCredits === undefined ||
+		stored.crewCredits === null;
 	return evaluateStoredDecision(stored, now, hasTypeSpecificMissing, detailSchemaVersion);
 }
 
@@ -200,7 +207,11 @@ export function evaluateStoredTVDecision(
 		numberOfSeasons?: number | null;
 		seasons?: unknown[] | null;
 		lastAirDate?: string | null;
+		lastEpisodeToAir?: unknown | null;
+		nextEpisodeToAir?: unknown | null;
 		creatorCredits?: HeaderContributorInput[] | null;
+		castCredits?: unknown[] | null;
+		crewCredits?: unknown[] | null;
 	},
 	now: number,
 	detailSchemaVersion: number
@@ -208,7 +219,14 @@ export function evaluateStoredTVDecision(
 	const hasTypeSpecificMissing =
 		stored.numberOfSeasons === null ||
 		stored.numberOfSeasons === undefined ||
+		stored.seasons === undefined ||
 		stored.lastAirDate === undefined ||
-		stored.creatorCredits === undefined;
+		stored.lastEpisodeToAir === undefined ||
+		stored.nextEpisodeToAir === undefined ||
+		stored.creatorCredits === undefined ||
+		stored.castCredits === undefined ||
+		stored.castCredits === null ||
+		stored.crewCredits === undefined ||
+		stored.crewCredits === null;
 	return evaluateStoredDecision(stored, now, hasTypeSpecificMissing, detailSchemaVersion);
 }

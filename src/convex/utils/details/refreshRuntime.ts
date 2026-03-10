@@ -34,9 +34,12 @@ export function createLeaseOwner(now: number): string {
 
 export async function fetchPreparedDetailsForSync(
 	mediaType: MediaType,
-	id: number
+	id: number,
+	options?: { includeCredits?: boolean }
 ): Promise<PreparedDetailSync> {
-	const details = await fetchDetailsFromTMDB(mediaType, id);
+	const details = await fetchDetailsFromTMDB(mediaType, id, {
+		includeCredits: options?.includeCredits
+	});
 	const companies = buildCompanies(details);
 	const isAnime = computeIsAnime(details);
 	const creatorCredits = buildCreatorCredits(details, isAnime, companies, dedupeCreatorCredits);

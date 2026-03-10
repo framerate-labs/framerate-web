@@ -34,7 +34,6 @@ type DetailSeedCommon = ExternalSourceIds & {
 	detailFetchedAt: null;
 	nextRefreshAt: number;
 	refreshErrorCount: number;
-	lastRefreshErrorAt: null;
 };
 
 export type MovieSeedData = DetailSeedCommon & {

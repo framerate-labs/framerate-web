@@ -12,6 +12,7 @@ import {
 	DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS
 } from './constants';
 import { isQueueUpsertResult, toRefreshCandidates } from './resultParsers';
+const DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS = 20 * 60_000;
 
 function detailRefreshQueueKey(
 	mediaType: 'movie' | 'tv',
@@ -19,6 +20,15 @@ function detailRefreshQueueKey(
 	externalId: number
 ): string {
 	return `${source}:${mediaType}:${externalId}`;
+}
+
+function isStaleRunningDetailQueueRow(
+	row: Pick<Doc<'detailRefreshQueue'>, 'state' | 'lastStartedAt' | 'lastRequestedAt'>,
+	now: number
+): boolean {
+	if (row.state !== 'running') return false;
+	const startedAt = row.lastStartedAt ?? row.lastRequestedAt ?? 0;
+	return startedAt > 0 && startedAt + DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS <= now;
 }
 
 export async function tryAcquireRefreshLeaseHandler(
@@ -137,16 +147,22 @@ export async function upsertDetailRefreshQueueRequestHandler(
 		});
 		return { queued: true, inserted: true, rowId };
 	}
+	const isStaleRunning = isStaleRunningDetailQueueRow(existing, args.now);
 
 	const isStale = (existing.nextRefreshAt ?? 0) <= args.now || existing.lastSuccessAt == null;
 	const shouldQueue =
 		force ||
 		isStale ||
+		isStaleRunning ||
 		existing.state === 'error' ||
 		existing.state === 'retry' ||
 		existing.state === 'queued';
 	const nextState =
-		existing.state === 'running' && !force ? 'running' : shouldQueue ? 'queued' : existing.state;
+		existing.state === 'running' && !force && !isStaleRunning
+			? 'running'
+			: shouldQueue
+				? 'queued'
+				: existing.state;
 	const nextPriority = Math.max(existing.priority, args.priority);
 	const nextAttemptAt =
 		nextState === 'queued'
@@ -256,7 +272,10 @@ export async function claimNextDetailRefreshQueueJobHandler(
 		.withIndex('by_syncKey', (q) => q.eq('syncKey', selected.syncKey))
 		.collect();
 	const activeRunning = rowsForSyncKey.find(
-		(row) => row.state === 'running' && row._id !== selectedId
+		(row) =>
+			row.state === 'running' &&
+			row._id !== selectedId &&
+			!isStaleRunningDetailQueueRow(row, args.now)
 	);
 	if (activeRunning) {
 		for (const row of rowsForSyncKey) {
@@ -271,7 +290,16 @@ export async function claimNextDetailRefreshQueueJobHandler(
 	}
 	const freshSelected = await ctx.db.get(selected._id);
 	if (!freshSelected) return null;
-	if (freshSelected.state === 'running') return null;
+	if (freshSelected.state === 'running') {
+		if (isStaleRunningDetailQueueRow(freshSelected, args.now)) {
+			await ctx.db.patch(freshSelected._id, {
+				state: 'queued',
+				nextAttemptAt: Math.min(freshSelected.nextAttemptAt ?? args.now, args.now),
+				lastRequestedAt: args.now
+			});
+		}
+		return null;
+	}
 	if (
 		(freshSelected.state !== 'queued' && freshSelected.state !== 'retry') ||
 		(freshSelected.nextAttemptAt ?? 0) > args.now

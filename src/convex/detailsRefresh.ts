@@ -15,6 +15,11 @@ import {
 	DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY
 } from './services/detailsRefresh/constants';
 import {
+	getCreditCacheBySourceHandler,
+	upsertCreditCacheHandler,
+	upsertStoredMediaCreditsHandler
+} from './services/detailsRefresh/creditCacheHandlers';
+import {
 	getStoredMediaHandler,
 	insertMediaHandler,
 	recordRefreshFailureHandler
@@ -87,6 +92,41 @@ const detailSeasonValidator = v.object({
 	seasonNumber: v.number(),
 	voteAverage: v.union(v.number(), v.null())
 });
+const detailCastCreditValidator = v.object({
+	id: v.number(),
+	adult: v.boolean(),
+	gender: v.number(),
+	knownForDepartment: v.string(),
+	name: v.string(),
+	originalName: v.string(),
+	popularity: v.number(),
+	profilePath: v.union(v.string(), v.null()),
+	character: v.string(),
+	creditId: v.string(),
+	order: v.number(),
+	castId: v.optional(v.union(v.number(), v.null()))
+});
+const detailCrewCreditValidator = v.object({
+	id: v.number(),
+	adult: v.boolean(),
+	gender: v.number(),
+	knownForDepartment: v.string(),
+	name: v.string(),
+	originalName: v.string(),
+	popularity: v.number(),
+	profilePath: v.union(v.string(), v.null()),
+	creditId: v.string(),
+	department: v.string(),
+	job: v.string()
+});
+const creditSourceValidator = v.union(v.literal('tmdb'), v.literal('anilist'));
+const creditCoverageValidator = v.union(v.literal('preview'), v.literal('full'));
+const creditSeasonContextValidator = v.object({
+	seasonKey: v.string(),
+	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null())),
+	seasonOrdinal: v.optional(v.union(v.number(), v.null())),
+	memberAnilistIds: v.optional(v.union(v.array(v.number()), v.null()))
+});
 
 function parseNumericTMDBId(id: number | string): number | null {
 	if (typeof id === 'number' && Number.isFinite(id) && Number.isInteger(id) && id > 0) return id;
@@ -128,9 +168,48 @@ export const insertMedia = internalMutation({
 		nextRefreshAt: v.number(),
 		isAnime: v.boolean(),
 		isAnimeSource: v.union(v.literal('auto'), v.literal('manual')),
-		creatorCredits: v.array(detailCreatorCreditValidator)
+		creatorCredits: v.array(detailCreatorCreditValidator),
+		castCredits: v.array(detailCastCreditValidator),
+		crewCredits: v.array(detailCrewCreditValidator)
 	},
 	handler: insertMediaHandler
+});
+
+export const getCreditCacheBySource = internalQuery({
+	args: {
+		mediaType: mediaTypeValidator,
+		tmdbId: v.number(),
+		source: creditSourceValidator,
+		seasonKey: v.optional(v.union(v.string(), v.null()))
+	},
+	handler: getCreditCacheBySourceHandler
+});
+
+export const upsertCreditCache = internalMutation({
+	args: {
+		mediaType: mediaTypeValidator,
+		tmdbId: v.number(),
+		source: creditSourceValidator,
+		seasonKey: v.union(v.string(), v.null()),
+		coverage: creditCoverageValidator,
+		castCredits: v.array(detailCastCreditValidator),
+		crewCredits: v.array(detailCrewCreditValidator),
+		castTotal: v.number(),
+		crewTotal: v.number(),
+		fetchedAt: v.number(),
+		nextRefreshAt: v.number()
+	},
+	handler: upsertCreditCacheHandler
+});
+
+export const upsertStoredMediaCredits = internalMutation({
+	args: {
+		mediaType: mediaTypeValidator,
+		tmdbId: v.number(),
+		castCredits: v.array(detailCastCreditValidator),
+		crewCredits: v.array(detailCrewCreditValidator)
+	},
+	handler: upsertStoredMediaCreditsHandler
 });
 
 export const tryAcquireRefreshLease = internalMutation({
@@ -255,7 +334,9 @@ export const refreshIfStale = action({
 		id: v.union(v.number(), v.string()),
 		source: v.optional(sourceValidator),
 		force: v.optional(v.boolean()),
-		skipQueueUpsert: v.optional(v.boolean())
+		skipQueueUpsert: v.optional(v.boolean()),
+		creditCoverageTarget: v.optional(creditCoverageValidator),
+		creditSeasonContext: v.optional(v.union(creditSeasonContextValidator, v.null()))
 	},
 	handler: async (ctx, args): Promise<RefreshIfStaleResult> => {
 		const source = args.source ?? 'tmdb';
@@ -280,7 +361,9 @@ export const refreshIfStale = action({
 				mediaType: args.mediaType,
 				id: args.id,
 				source: args.source,
-				force: args.force
+				force: args.force,
+				creditCoverageTarget: args.creditCoverageTarget,
+				creditSeasonContext: args.creditSeasonContext ?? null
 			},
 			DETAIL_REFRESH_CONFIG
 		);
@@ -318,6 +401,30 @@ export const refreshIfStale = action({
 
 		return result;
 	}
+});
+
+export const refreshAnimeCreditsInBackground = internalAction({
+	args: {
+		mediaType: mediaTypeValidator,
+		id: v.number(),
+		creditCoverageTarget: v.optional(creditCoverageValidator),
+		creditSeasonContext: v.optional(v.union(creditSeasonContextValidator, v.null()))
+	},
+	handler: async (ctx, args): Promise<RefreshIfStaleResult> =>
+		runRefreshIfStale(
+			ctx,
+			{
+				mediaType: args.mediaType,
+				id: args.id,
+				source: 'tmdb',
+				force: false,
+				skipDetailRefresh: true,
+				creditSourceOverride: 'anilist',
+				creditCoverageTarget: args.creditCoverageTarget,
+				creditSeasonContext: args.creditSeasonContext ?? null
+			},
+			DETAIL_REFRESH_CONFIG
+		)
 });
 
 export const sweepStaleDetails = internalAction({
@@ -443,7 +550,8 @@ export const processDetailRefreshQueue = internalAction({
 					id: claim.externalId,
 					source: claim.source,
 					force: false,
-					skipQueueUpsert: true
+					skipQueueUpsert: true,
+					creditCoverageTarget: 'full'
 				});
 				const result = toRefreshIfStaleResult(rawResult);
 				if (result.refreshed) {

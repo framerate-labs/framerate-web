@@ -1,6 +1,7 @@
 import type {
-	HeaderContributorInput,
-	StoredEpisodeSummary,
+	CreditCoverage,
+	StoredCastCredit,
+	StoredCrewCredit,
 	StoredMovieDoc,
 	StoredTVDoc
 } from './types/detailsType';
@@ -8,8 +9,15 @@ import type {
 import { v } from 'convex/values';
 
 import { internalMutation, mutation, query } from './_generated/server';
+import type { QueryCtx } from './_generated/server';
 import { resolveAnimeHeaderCredits } from './services/animeReadService';
+import { getAnimeXrefByTMDB } from './utils/anime/readCredits';
 import { resolveAnimeStudioStatus } from './utils/details/animeStudioStatus';
+import {
+	CREDIT_PREVIEW_LIMIT,
+	creditCharacterKey,
+	type CreditSource
+} from './utils/details/credits';
 import { mergeCreatorCreditsForSource } from './utils/details/creatorCredits';
 import { buildHeaderContext, hasAniListStudioCredits } from './utils/details/headerContext';
 import {
@@ -37,6 +45,18 @@ import {
 const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));
 const sourceValidator = v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb'));
 const DETAIL_SCHEMA_VERSION = 1;
+const creditCoverageValidator = v.union(v.literal('preview'), v.literal('full'));
+const creditSourceValidator = v.union(v.literal('tmdb'), v.literal('anilist'));
+const creditSeasonContextValidator = v.object({
+	seasonKey: v.string(),
+	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null())),
+	seasonOrdinal: v.optional(v.union(v.number(), v.null())),
+	memberAnilistIds: v.optional(v.union(v.array(v.number()), v.null()))
+});
+const creditOverrideScopeValidator = v.union(
+	v.literal('media_character'),
+	v.literal('global_character')
+);
 const detailCreatorCreditValidator = v.object({
 	type: v.union(v.literal('person'), v.literal('company')),
 	tmdbId: v.union(v.number(), v.null()),
@@ -74,138 +94,370 @@ function applyUnsetFields<T extends Record<string, unknown>>(
 	return next;
 }
 
-// One-time migration helper: patch legacy rows so required detail fields can be enforced safely.
-export const backfillRequiredDetailFields = internalMutation({
-	args: {
-		limitPerTable: v.number(),
-		table: v.optional(v.union(v.literal('movies'), v.literal('tvShows'))),
-		cursor: v.optional(v.union(v.string(), v.null())),
-		movieCursor: v.optional(v.union(v.string(), v.null())),
-		tvShowCursor: v.optional(v.union(v.string(), v.null()))
-	},
-	handler: async (ctx, args) => {
-		const now = Date.now();
-		const table = args.table ?? ((args.tvShowCursor ?? null) !== null ? 'tvShows' : 'movies');
-		const cursor =
-			args.cursor ??
-			(table === 'movies' ? (args.movieCursor ?? null) : (args.tvShowCursor ?? null));
+type CreditOverridesRow = {
+	scopeType: 'media_character' | 'global_character';
+	source: CreditSource;
+	characterKey: string;
+	overrideCharacterName?: string | null;
+	overrideImagePath?: string | null;
+	updatedAt: number;
+	seasonKey: string | null;
+	_creationTime: number;
+};
 
-		if (table === 'movies') {
-			const page = await ctx.db.query('movies').order('asc').paginate({
-				numItems: args.limitPerTable,
-				cursor
-			});
-			let patched = 0;
+type ResolvedCreditsPayload = {
+	cast: StoredCastCredit[];
+	crew: StoredCrewCredit[];
+	coverage: CreditCoverage | null;
+	source: CreditSource;
+	isExpired: boolean;
+	needsAnimeUpgrade: boolean;
+};
 
-			for (const movie of page.page) {
-				const patch: {
-					overview?: string | null;
-					status?: string | null;
-					runtime?: number | null;
-					detailSchemaVersion?: number;
-					detailFetchedAt?: number | null;
-					nextRefreshAt?: number;
-					refreshErrorCount?: number;
-					lastRefreshErrorAt?: number | null;
-					creatorCredits?: HeaderContributorInput[];
-				} = {};
+const PER_KEY_OVERRIDE_LOOKUP_THRESHOLD = 40;
 
-				if (movie.overview === undefined) patch.overview = null;
-				if (movie.status === undefined) patch.status = null;
-				if (movie.runtime === undefined) patch.runtime = null;
-				if (movie.detailSchemaVersion === undefined) patch.detailSchemaVersion = 0;
-				if (movie.detailFetchedAt === undefined) patch.detailFetchedAt = null;
-				if (movie.nextRefreshAt === undefined) patch.nextRefreshAt = now;
-				if (movie.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
-				if (movie.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
-				if (movie.creatorCredits === undefined) patch.creatorCredits = [];
+function applyOverrideToCast(
+	credit: StoredCastCredit,
+	override: CreditOverridesRow | undefined
+): StoredCastCredit {
+	if (!override) return credit;
+	const nextName = override.overrideCharacterName?.trim();
+	const nextImagePath = override.overrideImagePath?.trim();
+	return {
+		...credit,
+		name: nextName && nextName.length > 0 ? nextName : credit.name,
+		originalName: nextName && nextName.length > 0 ? nextName : credit.originalName,
+		profilePath: nextImagePath && nextImagePath.length > 0 ? nextImagePath : credit.profilePath
+	};
+}
 
-				if (Object.keys(patch).length > 0) {
-					await ctx.db.patch(movie._id, patch);
-					patched += 1;
-				}
-			}
+function applyOverrideToCrew(
+	credit: StoredCrewCredit,
+	override: CreditOverridesRow | undefined
+): StoredCrewCredit {
+	if (!override) return credit;
+	const nextName = override.overrideCharacterName?.trim();
+	const nextImagePath = override.overrideImagePath?.trim();
+	return {
+		...credit,
+		name: nextName && nextName.length > 0 ? nextName : credit.name,
+		originalName: nextName && nextName.length > 0 ? nextName : credit.originalName,
+		profilePath: nextImagePath && nextImagePath.length > 0 ? nextImagePath : credit.profilePath
+	};
+}
 
-			const nextCursor = page.isDone ? null : page.continueCursor;
-			return {
-				table,
-				scanned: page.page.length,
-				patched,
-				done: page.isDone,
-				nextCursor,
-				nextMovieCursor: nextCursor,
-				nextTVShowCursor: null,
-				moviesDone: page.isDone,
-				tvShowsDone: false
-			};
+function pickLatestByUpdatedAt<T extends { updatedAt: number; _creationTime: number }>(
+	rows: T[]
+): T | null {
+	if (rows.length === 0) return null;
+	let latest = rows[0] ?? null;
+	for (const row of rows) {
+		if (latest == null) {
+			latest = row;
+			continue;
 		}
-
-		const page = await ctx.db.query('tvShows').order('asc').paginate({
-			numItems: args.limitPerTable,
-			cursor
-		});
-		let patched = 0;
-
-		for (const tvShow of page.page) {
-			const patch: {
-				overview?: string | null;
-				status?: string | null;
-				numberOfSeasons?: number | null;
-				seasons?: Array<{
-					id: number;
-					name: string;
-					overview: string | null;
-					airDate: string | null;
-					episodeCount: number | null;
-					posterPath: string | null;
-					seasonNumber: number;
-					voteAverage: number | null;
-				}> | null;
-				lastAirDate?: string | null;
-				lastEpisodeToAir?: StoredEpisodeSummary | null;
-				nextEpisodeToAir?: StoredEpisodeSummary | null;
-				detailSchemaVersion?: number;
-				detailFetchedAt?: number | null;
-				nextRefreshAt?: number;
-				refreshErrorCount?: number;
-				lastRefreshErrorAt?: number | null;
-				creatorCredits?: HeaderContributorInput[];
-			} = {};
-
-			if (tvShow.overview === undefined) patch.overview = null;
-			if (tvShow.status === undefined) patch.status = null;
-			if (tvShow.numberOfSeasons === undefined) patch.numberOfSeasons = null;
-			if (tvShow.seasons === undefined) patch.seasons = null;
-			if (tvShow.lastAirDate === undefined) patch.lastAirDate = null;
-			if (tvShow.lastEpisodeToAir === undefined) patch.lastEpisodeToAir = null;
-			if (tvShow.nextEpisodeToAir === undefined) patch.nextEpisodeToAir = null;
-			if (tvShow.detailSchemaVersion === undefined) patch.detailSchemaVersion = 0;
-			if (tvShow.detailFetchedAt === undefined) patch.detailFetchedAt = null;
-			if (tvShow.nextRefreshAt === undefined) patch.nextRefreshAt = now;
-			if (tvShow.refreshErrorCount === undefined) patch.refreshErrorCount = 0;
-			if (tvShow.lastRefreshErrorAt === undefined) patch.lastRefreshErrorAt = null;
-			if (tvShow.creatorCredits === undefined) patch.creatorCredits = [];
-
-			if (Object.keys(patch).length > 0) {
-				await ctx.db.patch(tvShow._id, patch);
-				patched += 1;
-			}
+		if (row.updatedAt > latest.updatedAt) {
+			latest = row;
+			continue;
 		}
-
-		const nextCursor = page.isDone ? null : page.continueCursor;
-		return {
-			table,
-			scanned: page.page.length,
-			patched,
-			done: page.isDone,
-			nextCursor,
-			nextMovieCursor: null,
-			nextTVShowCursor: nextCursor,
-			moviesDone: false,
-			tvShowsDone: page.isDone
-		};
+		if (row.updatedAt === latest.updatedAt && row._creationTime > latest._creationTime) {
+			latest = row;
+		}
 	}
-});
+	return latest;
+}
+
+function pickLatestByFetchedAt<T extends { fetchedAt: number; _creationTime: number }>(
+	rows: T[]
+): T | null {
+	if (rows.length === 0) return null;
+	let latest = rows[0] ?? null;
+	for (const row of rows) {
+		if (latest == null) {
+			latest = row;
+			continue;
+		}
+		if (row.fetchedAt > latest.fetchedAt) {
+			latest = row;
+			continue;
+		}
+		if (row.fetchedAt === latest.fetchedAt && row._creationTime > latest._creationTime) {
+			latest = row;
+		}
+	}
+	return latest;
+}
+
+function normalizeSeasonKey(seasonKey: string | null | undefined): string | null {
+	const trimmed = seasonKey?.trim() ?? '';
+	return trimmed.length > 0 ? trimmed : null;
+}
+
+function seasonOverrideRank(rowSeasonKey: string | null, requestedSeasonKey: string | null): number {
+	const normalizedRowSeasonKey = normalizeSeasonKey(rowSeasonKey);
+	if (requestedSeasonKey == null) {
+		return normalizedRowSeasonKey == null ? 1 : 0;
+	}
+	if (normalizedRowSeasonKey === requestedSeasonKey) return 2;
+	if (normalizedRowSeasonKey == null) return 1;
+	return 0;
+}
+
+function mapLatestOverridesForSeason(
+	rows: CreditOverridesRow[],
+	requestedSeasonKey: string | null
+): Map<string, CreditOverridesRow> {
+	const map = new Map<string, CreditOverridesRow>();
+	for (const row of rows) {
+		const rowRank = seasonOverrideRank(row.seasonKey ?? null, requestedSeasonKey);
+		if (rowRank === 0) continue;
+		const existing = map.get(row.characterKey);
+		if (!existing) {
+			map.set(row.characterKey, row);
+			continue;
+		}
+		const existingRank = seasonOverrideRank(existing.seasonKey ?? null, requestedSeasonKey);
+		if (rowRank > existingRank) {
+			map.set(row.characterKey, row);
+			continue;
+		}
+		if (rowRank === existingRank && row.updatedAt > existing.updatedAt) {
+			map.set(row.characterKey, row);
+			continue;
+		}
+		if (
+			rowRank === existingRank &&
+			row.updatedAt === existing.updatedAt &&
+			row._creationTime > existing._creationTime
+		) {
+			map.set(row.characterKey, row);
+		}
+	}
+	return map;
+}
+
+async function resolveCanonicalCreditCacheRow(
+	ctx: QueryCtx,
+	args: {
+		mediaType: 'movie' | 'tv';
+		tmdbId: number;
+		source: CreditSource;
+		seasonKey?: string | null;
+	}
+) {
+	const requestedSeasonKey = normalizeSeasonKey(args.seasonKey);
+	const rows = await ctx.db
+		.query('creditCache')
+		.withIndex('by_mediaType_tmdbId_source_seasonKey', (q) =>
+			q
+				.eq('mediaType', args.mediaType)
+				.eq('tmdbId', args.tmdbId)
+				.eq('source', args.source)
+				.eq('seasonKey', requestedSeasonKey)
+		)
+		.collect();
+	return pickLatestByFetchedAt(rows);
+}
+
+async function resolveMediaOverrideMapForKeys(
+	ctx: QueryCtx,
+	args: {
+		mediaType: 'movie' | 'tv';
+		tmdbId: number;
+		source: CreditSource;
+		keys: Set<string>;
+		seasonKey?: string | null;
+	}
+): Promise<Map<string, CreditOverridesRow>> {
+	if (args.keys.size === 0) return new Map();
+	const keys = [...args.keys];
+	const requestedSeasonKey = normalizeSeasonKey(args.seasonKey);
+
+	const rows =
+		keys.length <= PER_KEY_OVERRIDE_LOOKUP_THRESHOLD
+			? (
+					await Promise.all(
+						keys.map((key) =>
+							ctx.db
+								.query('creditOverrides')
+								.withIndex('by_mediaType_tmdbId_source_characterKey', (q) =>
+									q
+										.eq('mediaType', args.mediaType)
+										.eq('tmdbId', args.tmdbId)
+										.eq('source', args.source)
+										.eq('characterKey', key)
+								)
+								.collect()
+						)
+					)
+				).flat()
+			: await ctx.db
+					.query('creditOverrides')
+					.withIndex('by_mediaType_tmdbId_source', (q) =>
+						q.eq('mediaType', args.mediaType).eq('tmdbId', args.tmdbId).eq('source', args.source)
+					)
+					.collect();
+
+	const filtered = rows.filter(
+		(row) =>
+			row.scopeType === 'media_character' &&
+			args.keys.has(row.characterKey)
+	) as CreditOverridesRow[];
+	return mapLatestOverridesForSeason(filtered, requestedSeasonKey);
+}
+
+async function resolveGlobalOverrideMapForKeys(
+	ctx: QueryCtx,
+	args: {
+		source: CreditSource;
+		keys: Set<string>;
+		seasonKey?: string | null;
+	}
+): Promise<Map<string, CreditOverridesRow>> {
+	if (args.keys.size === 0) return new Map();
+	const keys = [...args.keys];
+	const requestedSeasonKey = normalizeSeasonKey(args.seasonKey);
+
+	const rows =
+		keys.length <= PER_KEY_OVERRIDE_LOOKUP_THRESHOLD
+			? (
+					await Promise.all(
+						keys.map((key) =>
+							ctx.db
+								.query('creditOverrides')
+								.withIndex('by_scopeType_source_characterKey', (q) =>
+									q
+										.eq('scopeType', 'global_character')
+										.eq('source', args.source)
+										.eq('characterKey', key)
+								)
+								.collect()
+						)
+					)
+				).flat()
+			: await ctx.db
+					.query('creditOverrides')
+					.withIndex('by_scopeType_source', (q) =>
+						q.eq('scopeType', 'global_character').eq('source', args.source)
+					)
+					.collect();
+
+	const filtered = rows.filter(
+		(row) =>
+			row.scopeType === 'global_character' &&
+			args.keys.has(row.characterKey)
+	) as CreditOverridesRow[];
+	return mapLatestOverridesForSeason(filtered, requestedSeasonKey);
+}
+
+async function resolveCreditsPayload(
+	ctx: QueryCtx,
+	args: {
+		mediaType: 'movie' | 'tv';
+		tmdbId: number;
+		isAnime: boolean;
+		fallbackCast: StoredCastCredit[];
+		fallbackCrew: StoredCrewCredit[];
+		previewOnly: boolean;
+		seasonKey?: string | null;
+		includeAnimeUpgradeHint?: boolean;
+	}
+): Promise<ResolvedCreditsPayload> {
+	const requestedSeasonKey = normalizeSeasonKey(args.seasonKey);
+	let source: CreditSource = 'tmdb';
+	let scopedCacheRow: Awaited<ReturnType<typeof resolveCanonicalCreditCacheRow>> | null = null;
+	if (args.isAnime) {
+		// For season-scoped reads, only switch to AniList once that exact scope is cached.
+		// This keeps anime on TMDB credits until season-specific AniList enrichment completes.
+		scopedCacheRow = await resolveCanonicalCreditCacheRow(ctx, {
+			mediaType: args.mediaType,
+			tmdbId: args.tmdbId,
+			source: 'anilist',
+			seasonKey: requestedSeasonKey
+		});
+		if (scopedCacheRow != null) {
+			source = 'anilist';
+		}
+	}
+	if (scopedCacheRow == null) {
+		scopedCacheRow = await resolveCanonicalCreditCacheRow(ctx, {
+			mediaType: args.mediaType,
+			tmdbId: args.tmdbId,
+			source,
+			seasonKey: requestedSeasonKey
+		});
+	}
+	const fallbackCacheRow =
+		requestedSeasonKey == null || scopedCacheRow != null
+			? null
+			: await resolveCanonicalCreditCacheRow(ctx, {
+					mediaType: args.mediaType,
+					tmdbId: args.tmdbId,
+					source,
+					seasonKey: null
+				});
+	const cacheRow = scopedCacheRow ?? fallbackCacheRow;
+	const usedFallbackScope = requestedSeasonKey != null && scopedCacheRow == null && fallbackCacheRow != null;
+	const baseCast = cacheRow?.castCredits ?? args.fallbackCast;
+	const baseCrew = cacheRow?.crewCredits ?? args.fallbackCrew;
+
+	const applyLimit = (rows: StoredCastCredit[] | StoredCrewCredit[]) =>
+		args.previewOnly ? rows.slice(0, CREDIT_PREVIEW_LIMIT) : rows;
+	const limitedCast = applyLimit(baseCast) as StoredCastCredit[];
+	const limitedCrew = applyLimit(baseCrew) as StoredCrewCredit[];
+	const neededKeys = new Set<string>();
+	for (const credit of limitedCast) {
+		neededKeys.add(creditCharacterKey(source, credit.creditId));
+	}
+	for (const credit of limitedCrew) {
+		neededKeys.add(creditCharacterKey(source, credit.creditId));
+	}
+	const [mediaMap, globalMap] = await Promise.all([
+			resolveMediaOverrideMapForKeys(ctx, {
+				mediaType: args.mediaType,
+				tmdbId: args.tmdbId,
+				source,
+				keys: neededKeys,
+				seasonKey: requestedSeasonKey
+			}),
+			resolveGlobalOverrideMapForKeys(ctx, {
+				source,
+				keys: neededKeys,
+				seasonKey: requestedSeasonKey
+			})
+		]);
+
+	const cast = limitedCast.map((credit) => {
+		const key = creditCharacterKey(source, credit.creditId);
+		const override = mediaMap.get(key) ?? globalMap.get(key);
+		return applyOverrideToCast(credit, override);
+	});
+	const crew = limitedCrew.map((credit) => {
+		const key = creditCharacterKey(source, credit.creditId);
+		const override = mediaMap.get(key) ?? globalMap.get(key);
+		return applyOverrideToCrew(credit, override);
+	});
+	let needsAnimeUpgrade = false;
+	if (args.includeAnimeUpgradeHint === true && args.isAnime && source === 'tmdb') {
+		// If an AniList xref exists but AniList credits are not yet selected, keep
+		// detail payload marked stale so refresh can schedule background enrichment.
+		const animeXref = await getAnimeXrefByTMDB(ctx, {
+			tmdbType: args.mediaType,
+			tmdbId: args.tmdbId
+		});
+		needsAnimeUpgrade =
+			typeof animeXref?.anilistId === 'number' && Number.isFinite(animeXref.anilistId);
+	}
+
+	return {
+		cast,
+		crew,
+		coverage: usedFallbackScope ? null : (cacheRow?.coverage ?? null),
+		source,
+		isExpired: usedFallbackScope || (cacheRow != null && cacheRow.nextRefreshAt <= Date.now()),
+		needsAnimeUpgrade
+	};
+}
 
 export const syncAnimeCreatorCreditsForTMDB = internalMutation({
 	args: {
@@ -321,11 +573,24 @@ export const get = query({
 					overview: movie.overview,
 					status: movie.status ?? null,
 					runtime: movie.runtime,
-					creatorCredits: movie.creatorCredits
+					creatorCredits: movie.creatorCredits,
+					castCredits: movie.castCredits,
+					crewCredits: movie.crewCredits
 				},
 				now,
 				DETAIL_SCHEMA_VERSION
 			);
+			const creditsPayload = await resolveCreditsPayload(ctx, {
+				mediaType: 'movie',
+				tmdbId: movieTmdbId,
+				isAnime,
+				fallbackCast: movie.castCredits ?? [],
+				fallbackCrew: movie.crewCredits ?? [],
+				previewOnly: true,
+				includeAnimeUpgradeHint: true
+			});
+			const creditsHardRefreshNeeded = creditsPayload.coverage === null || creditsPayload.isExpired;
+			const creditsNeedRefresh = creditsHardRefreshNeeded || creditsPayload.needsAnimeUpgrade;
 
 			return {
 				mediaType: 'movie' as const,
@@ -341,10 +606,14 @@ export const get = query({
 				tvLastAirDate: null,
 				tvLastEpisodeToAir: null,
 				tvNextEpisodeToAir: null,
+				credits: {
+					cast: creditsPayload.cast,
+					crew: creditsPayload.crew
+				},
 				headerContext,
 				nextRefreshAt: movie.nextRefreshAt ?? null,
-				hardStale: refreshDecision.hardStale,
-				isStale: refreshDecision.needsRefresh
+				hardStale: refreshDecision.hardStale || creditsHardRefreshNeeded,
+				isStale: refreshDecision.needsRefresh || creditsNeedRefresh
 			};
 		}
 
@@ -398,13 +667,28 @@ export const get = query({
 				overview: tvShow.overview,
 				status: tvShow.status ?? null,
 				numberOfSeasons: tvShow.numberOfSeasons ?? null,
-				seasons: tvShow.seasons ?? null,
-				lastAirDate: tvShow.lastAirDate ?? null,
-				creatorCredits: tvShow.creatorCredits
+				seasons: tvShow.seasons,
+				lastAirDate: tvShow.lastAirDate,
+				lastEpisodeToAir: tvShow.lastEpisodeToAir,
+				nextEpisodeToAir: tvShow.nextEpisodeToAir,
+				creatorCredits: tvShow.creatorCredits,
+				castCredits: tvShow.castCredits,
+				crewCredits: tvShow.crewCredits
 			},
 			now,
 			DETAIL_SCHEMA_VERSION
 		);
+		const creditsPayload = await resolveCreditsPayload(ctx, {
+			mediaType: 'tv',
+			tmdbId: tvShowTmdbId,
+			isAnime,
+			fallbackCast: tvShow.castCredits ?? [],
+			fallbackCrew: tvShow.crewCredits ?? [],
+			previewOnly: true,
+			includeAnimeUpgradeHint: true
+		});
+		const creditsHardRefreshNeeded = creditsPayload.coverage === null || creditsPayload.isExpired;
+		const creditsNeedRefresh = creditsHardRefreshNeeded || creditsPayload.needsAnimeUpgrade;
 
 		return {
 			mediaType: 'tv' as const,
@@ -434,11 +718,209 @@ export const get = query({
 							displaySeasonNumber: mappedNextEpisodeToAir?.displaySeasonNumber ?? null,
 							displayEpisodeNumber: mappedNextEpisodeToAir?.displayEpisodeNumber ?? null
 						},
+			credits: {
+				cast: creditsPayload.cast,
+				crew: creditsPayload.crew
+			},
 			headerContext,
 			nextRefreshAt: tvShow.nextRefreshAt ?? null,
-			hardStale: refreshDecision.hardStale,
-			isStale: refreshDecision.needsRefresh
+			hardStale: refreshDecision.hardStale || creditsHardRefreshNeeded,
+			isStale: refreshDecision.needsRefresh || creditsNeedRefresh
 		};
+	}
+});
+
+export const getCredits = query({
+	args: {
+		mediaType: mediaTypeValidator,
+		source: sourceValidator,
+		externalId: v.union(v.number(), v.string()),
+		preferCoverage: v.optional(creditCoverageValidator),
+		seasonContext: v.optional(v.union(creditSeasonContextValidator, v.null()))
+	},
+	handler: async (ctx, args) => {
+		const preferredCoverage = args.preferCoverage ?? 'full';
+		const seasonKey =
+			args.mediaType === 'tv'
+				? normalizeSeasonKey(args.seasonContext?.seasonKey ?? null)
+				: null;
+		if (args.mediaType === 'movie') {
+			const movieBase = (await getMovieBySource(
+				ctx,
+				args.source,
+				args.externalId
+			)) as StoredMovieDoc | null;
+			if (!movieBase || movieBase.tmdbId === undefined) return null;
+			const movie = (await getFinalMovie(ctx, movieBase)) as StoredMovieDoc;
+			const tmdbId = movie.tmdbId;
+			if (tmdbId === undefined) return null;
+			const resolved = await resolveCreditsPayload(ctx, {
+				mediaType: 'movie',
+				tmdbId,
+				isAnime: movie.isAnime ?? false,
+				fallbackCast: movie.castCredits ?? [],
+				fallbackCrew: movie.crewCredits ?? [],
+				previewOnly: preferredCoverage === 'preview',
+				seasonKey: null,
+				includeAnimeUpgradeHint: false
+			});
+			return {
+				cast: resolved.cast,
+				crew: resolved.crew,
+				coverage: resolved.coverage,
+				source: resolved.source
+			};
+		}
+
+		const tvShowBase = (await getTVShowBySource(
+			ctx,
+			args.source,
+			args.externalId
+		)) as StoredTVDoc | null;
+		if (!tvShowBase || tvShowBase.tmdbId === undefined) return null;
+		const tvShow = (await getFinalTV(ctx, tvShowBase)) as StoredTVDoc;
+		const tmdbId = tvShow.tmdbId;
+		if (tmdbId === undefined) return null;
+		const resolved = await resolveCreditsPayload(ctx, {
+			mediaType: 'tv',
+			tmdbId,
+			isAnime: tvShow.isAnime ?? false,
+			fallbackCast: tvShow.castCredits ?? [],
+			fallbackCrew: tvShow.crewCredits ?? [],
+			previewOnly: preferredCoverage === 'preview',
+			seasonKey,
+			includeAnimeUpgradeHint: false
+		});
+		return {
+			cast: resolved.cast,
+			crew: resolved.crew,
+			coverage: resolved.coverage,
+			source: resolved.source
+		};
+	}
+});
+
+export const upsertCreditOverride = mutation({
+	args: {
+		scopeType: creditOverrideScopeValidator,
+		source: creditSourceValidator,
+		characterKey: v.string(),
+		mediaType: v.optional(v.union(mediaTypeValidator, v.null())),
+		tmdbId: v.optional(v.union(v.number(), v.null())),
+		seasonKey: v.optional(v.union(v.string(), v.null())),
+		overrideCharacterName: v.optional(v.union(v.string(), v.null())),
+		overrideImagePath: v.optional(v.union(v.string(), v.null()))
+	},
+	handler: async (ctx, args) => {
+		const normalizedScope = args.scopeType;
+		const normalizedMediaType =
+			normalizedScope === 'global_character' ? null : (args.mediaType ?? null);
+		const normalizedTMDBId = normalizedScope === 'global_character' ? null : (args.tmdbId ?? null);
+		const normalizedSeasonKey = normalizeSeasonKey(args.seasonKey);
+		const now = Date.now();
+
+		const rawCandidates =
+			normalizedScope === 'global_character'
+				? await ctx.db
+						.query('creditOverrides')
+						.withIndex('by_scopeType_source_characterKey', (q) =>
+							q
+								.eq('scopeType', 'global_character')
+								.eq('source', args.source)
+								.eq('characterKey', args.characterKey)
+						)
+						.collect()
+				: await ctx.db
+						.query('creditOverrides')
+						.withIndex('by_mediaType_tmdbId_source_characterKey', (q) =>
+							q
+								.eq('mediaType', normalizedMediaType)
+								.eq('tmdbId', normalizedTMDBId)
+								.eq('source', args.source)
+								.eq('characterKey', args.characterKey)
+						)
+						.collect();
+		const candidates = rawCandidates.filter(
+			(row) =>
+				row.scopeType === normalizedScope && (row.seasonKey ?? null) === normalizedSeasonKey
+		);
+		const existing = pickLatestByUpdatedAt(candidates);
+
+		const payload = {
+			scopeType: normalizedScope,
+			source: args.source,
+			characterKey: args.characterKey,
+			mediaType: normalizedMediaType,
+			tmdbId: normalizedTMDBId,
+			seasonKey: normalizedSeasonKey,
+			overrideCharacterName: args.overrideCharacterName,
+			overrideImagePath: args.overrideImagePath,
+			updatedAt: now
+		};
+
+		if (existing) {
+			await ctx.db.patch(existing._id, payload);
+			for (const row of candidates) {
+				if (row._id === existing._id) continue;
+				await ctx.db.delete(row._id);
+			}
+			return { ok: true, rowId: existing._id };
+		}
+		const rowId = await ctx.db.insert('creditOverrides', payload);
+		return { ok: true, rowId };
+	}
+});
+
+export const removeCreditOverride = mutation({
+	args: {
+		scopeType: creditOverrideScopeValidator,
+		source: creditSourceValidator,
+		characterKey: v.string(),
+		mediaType: v.optional(v.union(mediaTypeValidator, v.null())),
+		tmdbId: v.optional(v.union(v.number(), v.null())),
+		seasonKey: v.optional(v.union(v.string(), v.null()))
+	},
+	handler: async (ctx, args) => {
+		const normalizedScope = args.scopeType;
+		const normalizedMediaType =
+			normalizedScope === 'global_character' ? null : (args.mediaType ?? null);
+		const normalizedTMDBId = normalizedScope === 'global_character' ? null : (args.tmdbId ?? null);
+		const normalizedSeasonKey = normalizeSeasonKey(args.seasonKey);
+
+		const candidates =
+			normalizedScope === 'global_character'
+				? await ctx.db
+						.query('creditOverrides')
+						.withIndex('by_scopeType_source_characterKey', (q) =>
+							q
+								.eq('scopeType', 'global_character')
+								.eq('source', args.source)
+								.eq('characterKey', args.characterKey)
+						)
+						.collect()
+				: await ctx.db
+						.query('creditOverrides')
+						.withIndex('by_mediaType_tmdbId_source_characterKey', (q) =>
+							q
+								.eq('mediaType', normalizedMediaType)
+								.eq('tmdbId', normalizedTMDBId)
+								.eq('source', args.source)
+								.eq('characterKey', args.characterKey)
+						)
+						.collect();
+
+		let deleted = 0;
+		for (const row of candidates) {
+			if (
+				row.scopeType !== normalizedScope ||
+				(row.seasonKey ?? null) !== normalizedSeasonKey
+			) {
+				continue;
+			}
+			await ctx.db.delete(row._id);
+			deleted += 1;
+		}
+		return { ok: true, deleted };
 	}
 });
 

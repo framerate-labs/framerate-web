@@ -78,6 +78,39 @@ const storedTVSeasonSummaryValidator = v.object({
 	seasonNumber: v.number(),
 	voteAverage: v.union(v.number(), v.null())
 });
+const storedCastCreditValidator = v.object({
+	id: v.number(),
+	adult: v.boolean(),
+	gender: v.number(),
+	knownForDepartment: v.string(),
+	name: v.string(),
+	originalName: v.string(),
+	popularity: v.number(),
+	profilePath: v.union(v.string(), v.null()),
+	character: v.string(),
+	creditId: v.string(),
+	order: v.number(),
+	castId: v.optional(v.union(v.number(), v.null()))
+});
+const storedCrewCreditValidator = v.object({
+	id: v.number(),
+	adult: v.boolean(),
+	gender: v.number(),
+	knownForDepartment: v.string(),
+	name: v.string(),
+	originalName: v.string(),
+	popularity: v.number(),
+	profilePath: v.union(v.string(), v.null()),
+	creditId: v.string(),
+	department: v.string(),
+	job: v.string()
+});
+const creditCoverageValidator = v.union(v.literal('preview'), v.literal('full'));
+const creditSourceValidator = v.union(v.literal('tmdb'), v.literal('anilist'));
+const creditOverrideScopeValidator = v.union(
+	v.literal('media_character'),
+	v.literal('global_character')
+);
 
 export default defineSchema({
 	// =====================================================================
@@ -325,20 +358,18 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		// Temporary compatibility field for legacy prod rows; remove after slug purge migration.
-		slug: v.optional(v.union(v.string(), v.null())),
 		isAnime: v.optional(v.boolean()),
 		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
+		castCredits: v.optional(v.array(storedCastCreditValidator)),
+		crewCredits: v.optional(v.array(storedCrewCreditValidator)),
 		overview: v.optional(v.union(v.string(), v.null())),
 		status: v.optional(v.union(v.string(), v.null())),
 		runtime: v.optional(v.union(v.number(), v.null())),
 		detailSchemaVersion: v.optional(v.number()),
 		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
 		nextRefreshAt: v.optional(v.number()),
-		refreshErrorCount: v.optional(v.number()),
-		// Temporary compatibility for legacy rows until details.backfillRequiredDetailFields sets this.
-		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
+		refreshErrorCount: v.optional(v.number())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
@@ -357,11 +388,11 @@ export default defineSchema({
 		posterPath: v.union(v.string(), v.null()),
 		backdropPath: v.union(v.string(), v.null()),
 		releaseDate: v.union(v.string(), v.null()),
-		// Temporary compatibility field for legacy prod rows; remove after slug purge migration.
-		slug: v.optional(v.union(v.string(), v.null())),
 		isAnime: v.optional(v.boolean()),
 		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
+		castCredits: v.optional(v.array(storedCastCreditValidator)),
+		crewCredits: v.optional(v.array(storedCrewCreditValidator)),
 		overview: v.optional(v.union(v.string(), v.null())),
 		status: v.optional(v.union(v.string(), v.null())),
 		numberOfSeasons: v.optional(v.union(v.number(), v.null())),
@@ -372,15 +403,65 @@ export default defineSchema({
 		detailSchemaVersion: v.optional(v.number()),
 		detailFetchedAt: v.optional(v.union(v.number(), v.null())),
 		nextRefreshAt: v.optional(v.number()),
-		refreshErrorCount: v.optional(v.number()),
-		// Temporary compatibility for legacy rows until details.backfillRequiredDetailFields sets this.
-		lastRefreshErrorAt: v.optional(v.union(v.number(), v.null()))
+		refreshErrorCount: v.optional(v.number())
 	})
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
 		.index('by_imdbId', ['imdbId'])
 		.index('by_isAnime_tmdbId', ['isAnime', 'tmdbId'])
 		.index('by_nextRefreshAt', ['nextRefreshAt']),
+
+	// =====================================================================
+	// Canonical media credits cache with explicit coverage semantics.
+	// coverage=preview => intentionally partial top-N payload.
+	// coverage=full => backend-verified complete snapshot for this source.
+	// =====================================================================
+	creditCache: defineTable({
+		mediaType: mediaTypeValidator,
+		tmdbId: v.number(),
+		source: creditSourceValidator,
+		seasonKey: v.optional(v.union(v.string(), v.null())),
+		coverage: creditCoverageValidator,
+		castCredits: v.array(storedCastCreditValidator),
+		crewCredits: v.array(storedCrewCreditValidator),
+		castTotal: v.number(),
+		crewTotal: v.number(),
+		fetchedAt: v.number(),
+		nextRefreshAt: v.number()
+	})
+		.index('by_mediaType_tmdbId_source_seasonKey', [
+			'mediaType',
+			'tmdbId',
+			'source',
+			'seasonKey'
+		])
+		.index('by_nextRefreshAt', ['nextRefreshAt']),
+
+	// =====================================================================
+	// Persistent character-level credit overrides.
+	// media_character applies to a specific title (and optional season scope).
+	// global_character applies across titles for the same source+characterKey.
+	// =====================================================================
+	creditOverrides: defineTable({
+		scopeType: creditOverrideScopeValidator,
+		source: creditSourceValidator,
+		characterKey: v.string(),
+		mediaType: v.union(mediaTypeValidator, v.null()),
+		tmdbId: v.union(v.number(), v.null()),
+		seasonKey: v.union(v.string(), v.null()),
+		overrideCharacterName: v.optional(v.union(v.string(), v.null())),
+		overrideImagePath: v.optional(v.union(v.string(), v.null())),
+		updatedAt: v.number()
+	})
+		.index('by_scopeType_source', ['scopeType', 'source'])
+		.index('by_scopeType_source_characterKey', ['scopeType', 'source', 'characterKey'])
+		.index('by_mediaType_tmdbId_source', ['mediaType', 'tmdbId', 'source'])
+		.index('by_mediaType_tmdbId_source_characterKey', [
+			'mediaType',
+			'tmdbId',
+			'source',
+			'characterKey'
+		]),
 
 	// =====================================================================
 	// Manual movie overrides. These rows are never touched by refresh workers.
@@ -503,6 +584,39 @@ export default defineSchema({
 					name: v.string(),
 					isAnimationStudio: v.optional(v.boolean()),
 					isMain: v.optional(v.boolean())
+				})
+			)
+		),
+		characters: v.optional(
+			v.array(
+				v.object({
+					anilistCharacterId: v.float64(),
+					name: v.string(),
+					imageUrl: v.union(v.string(), v.null()),
+					role: v.union(v.string(), v.null()),
+					voiceActor: v.optional(
+						v.union(
+							v.object({
+								anilistStaffId: v.float64(),
+								name: v.string(),
+								imageUrl: v.union(v.string(), v.null())
+							}),
+							v.null()
+						)
+					),
+					order: v.float64()
+				})
+			)
+		),
+		staff: v.optional(
+			v.array(
+				v.object({
+					anilistStaffId: v.float64(),
+					name: v.string(),
+					imageUrl: v.union(v.string(), v.null()),
+					role: v.union(v.string(), v.null()),
+					department: v.union(v.string(), v.null()),
+					order: v.float64()
 				})
 			)
 		),

@@ -7,6 +7,35 @@ export type AniListStudioDoc = {
 	isMain?: boolean;
 };
 
-export type AniListMediaDoc = Pick<Doc<'anilistMedia'>, 'anilistId' | 'studios'> & {
+export type AniListCharacterVoiceActorDoc = {
+	anilistStaffId: number;
+	name: string;
+	imageUrl: string | null;
+};
+
+export type AniListCharacterDoc = {
+	anilistCharacterId: number;
+	name: string;
+	imageUrl: string | null;
+	role: string | null;
+	voiceActor?: AniListCharacterVoiceActorDoc | null;
+	order: number;
+};
+
+export type AniListStaffDoc = {
+	anilistStaffId: number;
+	name: string;
+	imageUrl: string | null;
+	role: string | null;
+	department: string | null;
+	order: number;
+};
+
+export type AniListMediaDoc = Pick<
+	Doc<'anilistMedia'>,
+	'anilistId' | 'studios' | 'characters' | 'staff'
+> & {
 	studios?: AniListStudioDoc[];
+	characters?: AniListCharacterDoc[];
+	staff?: AniListStaffDoc[];
 };
