@@ -14,7 +14,6 @@ export type { AniListRateLimitHints, AniListRequestMetrics };
 
 const ANILIST_CONNECTION_PAGE_SIZE = 25;
 const ANILIST_CONNECTION_MAX_PAGES = 8;
-const ANILIST_PREVIEW_PAGE_SIZE = 10;
 
 function readConnectionHasNextPage(media: unknown, connection: 'characters' | 'staff'): boolean {
 	if (!media || typeof media !== 'object') return false;
@@ -148,65 +147,4 @@ export async function fetchAniListAnimeMediaById(
 		characters: dedupedCharacters,
 		staff: dedupedStaff
 	};
-}
-
-export async function fetchAniListAnimeMediaByIdPreview(
-	id: number,
-	metrics?: AniListRequestMetrics
-): Promise<{
-	media: AniListMediaCore;
-	hasNextCharactersPage: boolean;
-	hasNextStaffPage: boolean;
-}> {
-	const data = await anilistGraphQL<{
-		Media?: unknown;
-	}>(
-		MEDIA_BY_ID_QUERY,
-		{
-			id,
-			charactersPage: 1,
-			staffPage: 1,
-			perPage: ANILIST_PREVIEW_PAGE_SIZE,
-			includeCharacters: true,
-			includeStaff: true
-		},
-		{ metrics, kind: 'media' }
-	);
-
-	const media = normalizeMediaCore(data.Media);
-	if (!media) {
-		throw new Error(`AniList Media ${id} not found or invalid`);
-	}
-
-	return {
-		media,
-		hasNextCharactersPage: readConnectionHasNextPage(data.Media, 'characters'),
-		hasNextStaffPage: readConnectionHasNextPage(data.Media, 'staff')
-	};
-}
-
-export async function fetchAniListAnimeMediaGraphById(
-	id: number,
-	metrics?: AniListRequestMetrics
-): Promise<AniListMediaCore> {
-	const data = await anilistGraphQL<{
-		Media?: unknown;
-	}>(
-		MEDIA_BY_ID_QUERY,
-		{
-			id,
-			charactersPage: 1,
-			staffPage: 1,
-			perPage: 1,
-			includeCharacters: false,
-			includeStaff: false
-		},
-		{ metrics, kind: 'media' }
-	);
-
-	const media = normalizeMediaCore(data.Media);
-	if (!media) {
-		throw new Error(`AniList Media ${id} not found or invalid`);
-	}
-	return media;
 }

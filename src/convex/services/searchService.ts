@@ -59,6 +59,9 @@ function personHasKnownForCredits(item: TMDBSearchItem): boolean {
 }
 
 function normalizeItem(item: TMDBSearchItem): NormalizedSearchItem | null {
+	if (item.media_type !== 'movie' && item.media_type !== 'tv' && item.media_type !== 'person') {
+		return null;
+	}
 	if (shouldDropMediaResult(item)) return null;
 	if (!personHasKnownForCredits(item)) return null;
 

@@ -11,7 +11,6 @@ import { v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
 import type { QueryCtx } from './_generated/server';
 import { resolveAnimeHeaderCredits } from './services/animeReadService';
-import { getAnimeXrefByTMDB } from './utils/anime/readCredits';
 import { resolveAnimeStudioStatus } from './utils/details/animeStudioStatus';
 import {
 	CREDIT_PREVIEW_LIMIT,
@@ -49,9 +48,7 @@ const creditCoverageValidator = v.union(v.literal('preview'), v.literal('full'))
 const creditSourceValidator = v.union(v.literal('tmdb'), v.literal('anilist'));
 const creditSeasonContextValidator = v.object({
 	seasonKey: v.string(),
-	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null())),
-	seasonOrdinal: v.optional(v.union(v.number(), v.null())),
-	memberAnilistIds: v.optional(v.union(v.array(v.number()), v.null()))
+	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null()))
 });
 const creditOverrideScopeValidator = v.union(
 	v.literal('media_character'),
@@ -111,7 +108,6 @@ type ResolvedCreditsPayload = {
 	coverage: CreditCoverage | null;
 	source: CreditSource;
 	isExpired: boolean;
-	needsAnimeUpgrade: boolean;
 };
 
 const PER_KEY_OVERRIDE_LOOKUP_THRESHOLD = 40;
@@ -355,56 +351,34 @@ async function resolveCreditsPayload(
 	args: {
 		mediaType: 'movie' | 'tv';
 		tmdbId: number;
-		isAnime: boolean;
-		fallbackCast: StoredCastCredit[];
-		fallbackCrew: StoredCrewCredit[];
 		previewOnly: boolean;
 		seasonKey?: string | null;
-		includeAnimeUpgradeHint?: boolean;
 	}
 ): Promise<ResolvedCreditsPayload> {
 	const requestedSeasonKey = normalizeSeasonKey(args.seasonKey);
-	let source: CreditSource = 'tmdb';
-	let scopedCacheRow: Awaited<ReturnType<typeof resolveCanonicalCreditCacheRow>> | null = null;
-	if (args.isAnime) {
-		// For season-scoped reads, only switch to AniList once that exact scope is cached.
-		// This keeps anime on TMDB credits until season-specific AniList enrichment completes.
-		scopedCacheRow = await resolveCanonicalCreditCacheRow(ctx, {
-			mediaType: args.mediaType,
-			tmdbId: args.tmdbId,
-			source: 'anilist',
-			seasonKey: requestedSeasonKey
-		});
-		if (scopedCacheRow != null) {
-			source = 'anilist';
-		}
-	}
-	if (scopedCacheRow == null) {
-		scopedCacheRow = await resolveCanonicalCreditCacheRow(ctx, {
-			mediaType: args.mediaType,
-			tmdbId: args.tmdbId,
-			source,
-			seasonKey: requestedSeasonKey
-		});
-	}
+	const source: CreditSource = 'tmdb';
+	const scopedCacheRow = await resolveCanonicalCreditCacheRow(ctx, {
+		mediaType: args.mediaType,
+		tmdbId: args.tmdbId,
+		source,
+		seasonKey: requestedSeasonKey
+	});
 	const fallbackCacheRow =
-		requestedSeasonKey == null || scopedCacheRow != null
-			? null
-			: await resolveCanonicalCreditCacheRow(ctx, {
+		requestedSeasonKey != null && scopedCacheRow == null
+			? await resolveCanonicalCreditCacheRow(ctx, {
 					mediaType: args.mediaType,
 					tmdbId: args.tmdbId,
 					source,
 					seasonKey: null
-				});
+				})
+			: null;
 	const cacheRow = scopedCacheRow ?? fallbackCacheRow;
 	const usedFallbackScope = requestedSeasonKey != null && scopedCacheRow == null && fallbackCacheRow != null;
-	const baseCast = cacheRow?.castCredits ?? args.fallbackCast;
-	const baseCrew = cacheRow?.crewCredits ?? args.fallbackCrew;
+	const baseCast = cacheRow?.castCredits ?? [];
+	const baseCrew = cacheRow?.crewCredits ?? [];
 
-	const applyLimit = (rows: StoredCastCredit[] | StoredCrewCredit[]) =>
-		args.previewOnly ? rows.slice(0, CREDIT_PREVIEW_LIMIT) : rows;
-	const limitedCast = applyLimit(baseCast) as StoredCastCredit[];
-	const limitedCrew = applyLimit(baseCrew) as StoredCrewCredit[];
+	const limitedCast = args.previewOnly ? baseCast.slice(0, CREDIT_PREVIEW_LIMIT) : baseCast;
+	const limitedCrew = args.previewOnly ? baseCrew.slice(0, CREDIT_PREVIEW_LIMIT) : baseCrew;
 	const neededKeys = new Set<string>();
 	for (const credit of limitedCast) {
 		neededKeys.add(creditCharacterKey(source, credit.creditId));
@@ -437,25 +411,13 @@ async function resolveCreditsPayload(
 		const override = mediaMap.get(key) ?? globalMap.get(key);
 		return applyOverrideToCrew(credit, override);
 	});
-	let needsAnimeUpgrade = false;
-	if (args.includeAnimeUpgradeHint === true && args.isAnime && source === 'tmdb') {
-		// If an AniList xref exists but AniList credits are not yet selected, keep
-		// detail payload marked stale so refresh can schedule background enrichment.
-		const animeXref = await getAnimeXrefByTMDB(ctx, {
-			tmdbType: args.mediaType,
-			tmdbId: args.tmdbId
-		});
-		needsAnimeUpgrade =
-			typeof animeXref?.anilistId === 'number' && Number.isFinite(animeXref.anilistId);
-	}
 
 	return {
 		cast,
 		crew,
 		coverage: usedFallbackScope ? null : (cacheRow?.coverage ?? null),
 		source,
-		isExpired: usedFallbackScope || (cacheRow != null && cacheRow.nextRefreshAt <= Date.now()),
-		needsAnimeUpgrade
+		isExpired: usedFallbackScope || (cacheRow != null && cacheRow.nextRefreshAt <= Date.now())
 	};
 }
 
@@ -573,9 +535,7 @@ export const get = query({
 					overview: movie.overview,
 					status: movie.status ?? null,
 					runtime: movie.runtime,
-					creatorCredits: movie.creatorCredits,
-					castCredits: movie.castCredits,
-					crewCredits: movie.crewCredits
+					creatorCredits: movie.creatorCredits
 				},
 				now,
 				DETAIL_SCHEMA_VERSION
@@ -583,14 +543,10 @@ export const get = query({
 			const creditsPayload = await resolveCreditsPayload(ctx, {
 				mediaType: 'movie',
 				tmdbId: movieTmdbId,
-				isAnime,
-				fallbackCast: movie.castCredits ?? [],
-				fallbackCrew: movie.crewCredits ?? [],
-				previewOnly: true,
-				includeAnimeUpgradeHint: true
+				previewOnly: true
 			});
 			const creditsHardRefreshNeeded = creditsPayload.coverage === null || creditsPayload.isExpired;
-			const creditsNeedRefresh = creditsHardRefreshNeeded || creditsPayload.needsAnimeUpgrade;
+			const creditsNeedRefresh = creditsHardRefreshNeeded;
 
 			return {
 				mediaType: 'movie' as const,
@@ -671,9 +627,7 @@ export const get = query({
 				lastAirDate: tvShow.lastAirDate,
 				lastEpisodeToAir: tvShow.lastEpisodeToAir,
 				nextEpisodeToAir: tvShow.nextEpisodeToAir,
-				creatorCredits: tvShow.creatorCredits,
-				castCredits: tvShow.castCredits,
-				crewCredits: tvShow.crewCredits
+				creatorCredits: tvShow.creatorCredits
 			},
 			now,
 			DETAIL_SCHEMA_VERSION
@@ -681,14 +635,10 @@ export const get = query({
 		const creditsPayload = await resolveCreditsPayload(ctx, {
 			mediaType: 'tv',
 			tmdbId: tvShowTmdbId,
-			isAnime,
-			fallbackCast: tvShow.castCredits ?? [],
-			fallbackCrew: tvShow.crewCredits ?? [],
-			previewOnly: true,
-			includeAnimeUpgradeHint: true
+			previewOnly: true
 		});
 		const creditsHardRefreshNeeded = creditsPayload.coverage === null || creditsPayload.isExpired;
-		const creditsNeedRefresh = creditsHardRefreshNeeded || creditsPayload.needsAnimeUpgrade;
+		const creditsNeedRefresh = creditsHardRefreshNeeded;
 
 		return {
 			mediaType: 'tv' as const,
@@ -757,12 +707,8 @@ export const getCredits = query({
 			const resolved = await resolveCreditsPayload(ctx, {
 				mediaType: 'movie',
 				tmdbId,
-				isAnime: movie.isAnime ?? false,
-				fallbackCast: movie.castCredits ?? [],
-				fallbackCrew: movie.crewCredits ?? [],
 				previewOnly: preferredCoverage === 'preview',
-				seasonKey: null,
-				includeAnimeUpgradeHint: false
+				seasonKey: null
 			});
 			return {
 				cast: resolved.cast,
@@ -784,12 +730,8 @@ export const getCredits = query({
 		const resolved = await resolveCreditsPayload(ctx, {
 			mediaType: 'tv',
 			tmdbId,
-			isAnime: tvShow.isAnime ?? false,
-			fallbackCast: tvShow.castCredits ?? [],
-			fallbackCrew: tvShow.crewCredits ?? [],
 			previewOnly: preferredCoverage === 'preview',
-			seasonKey,
-			includeAnimeUpgradeHint: false
+			seasonKey
 		});
 		return {
 			cast: resolved.cast,

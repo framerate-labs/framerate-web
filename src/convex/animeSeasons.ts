@@ -202,32 +202,16 @@ function isSpecialOnlySeasonRow(row: {
 
 function computeDisplaySeasonCountFromSeasonRows(
 	rows: Array<{
-		stableSeasonId: number;
-		memberAnilistIds?: number[] | null;
 		seasonSources?: Array<{ tmdbSeasonNumber?: number | null }> | null;
 		seasonXref?: { tmdbSeasonNumber?: number | null } | null;
-	}>,
-	mode: 'anilist' | 'tmdb_seasons' = 'anilist'
+	}>
 ): number | null {
-	if (mode === 'tmdb_seasons') {
-		let count = 0;
-		for (const row of rows) {
-			if (isSpecialOnlySeasonRow(row)) continue;
-			count += 1;
-		}
-		return count > 0 ? count : null;
-	}
-	const seasonKeys = new Set<string>();
+	let count = 0;
 	for (const row of rows) {
 		if (isSpecialOnlySeasonRow(row)) continue;
-		const memberIds = (row.memberAnilistIds ?? []).slice().sort((a, b) => a - b);
-		if (memberIds.length > 0) {
-			seasonKeys.add(`members:${memberIds.join(',')}`);
-			continue;
-		}
-		seasonKeys.add(`stable:${row.stableSeasonId}`);
+		count += 1;
 	}
-	return seasonKeys.size > 0 ? seasonKeys.size : null;
+	return count > 0 ? count : null;
 }
 
 function estimateSeasonRowEpisodeCount(row: {
@@ -1516,13 +1500,7 @@ export const getAnimeSeasons = query({
 		selectedStableSeasonId: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
-		const [xrefRows, displayRows, titleOverrideRows] = await Promise.all([
-			ctx.db
-				.query('animeXref')
-				.withIndex('by_tmdbType_tmdbId', (q) =>
-					q.eq('tmdbType', args.tmdbType).eq('tmdbId', args.tmdbId)
-				)
-				.collect(),
+		const [displayRows, titleOverrideRows] = await Promise.all([
 			ctx.db
 				.query('animeDisplaySeasons')
 				.withIndex('by_tmdb', (q) => q.eq('tmdbType', args.tmdbType).eq('tmdbId', args.tmdbId))
@@ -1532,7 +1510,6 @@ export const getAnimeSeasons = query({
 				.withIndex('by_tmdb', (q) => q.eq('tmdbType', args.tmdbType).eq('tmdbId', args.tmdbId))
 				.collect()
 		]);
-		const xref = xrefRows[0] ?? null;
 		const titleOverride = titleOverrideRows[0] ?? null;
 		const defaultEpisodeNumberingMode = resolveDefaultEpisodeNumberingMode(titleOverride);
 
@@ -1606,7 +1583,6 @@ export const getAnimeSeasons = query({
 					seasonTitle: row.label,
 					seasonOrdinal: row.seasonOrdinal ?? null,
 					episodeNumberingMode: rowEpisodeNumberingMode,
-					memberAnilistIds: xref?.anilistId != null ? [xref.anilistId] : [],
 					seasonSources: sources
 				};
 			});
@@ -1615,10 +1591,7 @@ export const getAnimeSeasons = query({
 			seasons.find((item) => item.stableSeasonId === args.selectedStableSeasonId) ??
 			seasons[0] ??
 			null;
-		const computedDisplaySeasonCount = computeDisplaySeasonCountFromSeasonRows(
-			seasons,
-			'tmdb_seasons'
-		);
+		const computedDisplaySeasonCount = computeDisplaySeasonCountFromSeasonRows(seasons);
 		const explicitDisplaySeasonCount = titleOverride?.displaySeasonCountOverride ?? null;
 		return {
 			seasons,

@@ -182,6 +182,7 @@ export function buildCreatorCredits(
 	dedupeCreatorCredits: (contributors: HeaderContributorInput[]) => HeaderContributorInput[]
 ): HeaderContributorInput[] {
 	const studioCandidates = isAnime ? pickStudioCandidates(companies, true, 3) : [];
+	const isPlaceholderCreatorName = (name: string) => name.trim().toLowerCase() === 'unknown';
 
 	if (details.mediaType === 'movie') {
 		const directors = dedupeCreatorCredits(
@@ -198,11 +199,11 @@ export function buildCreatorCredits(
 			directors.length > 0
 				? directors
 				: dedupeCreatorCredits(
-						details.director
-							.split(',')
-							.map((name) => name.trim())
-							.filter((name) => name.length > 0)
-							.map((name) => ({
+							details.director
+								.split(',')
+								.map((name) => name.trim())
+								.filter((name) => name.length > 0 && !isPlaceholderCreatorName(name))
+								.map((name) => ({
 								type: 'person' as const,
 								tmdbId: null,
 								name,
@@ -239,7 +240,7 @@ export function buildCreatorCredits(
 		details.creator
 			.split(',')
 			.map((name) => name.trim())
-			.filter((name) => name.length > 0)
+			.filter((name) => name.length > 0 && !isPlaceholderCreatorName(name))
 			.map((name) => ({
 				type: 'person' as const,
 				tmdbId: null,

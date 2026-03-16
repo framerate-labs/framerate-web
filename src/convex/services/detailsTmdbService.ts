@@ -24,6 +24,7 @@ import type {
 } from '../types/tmdb/detailsTypes';
 
 import { fetchTMDBJson } from '../utils/tmdb';
+import { prioritizeSpecificCastRows } from '../utils/details/credits';
 
 const TMDB_PREVIEW_CREDITS_LIMIT = 10;
 
@@ -39,7 +40,7 @@ function formatNames(people: { name?: string | null }[] | null): string {
 		.filter((name): name is string => !!name && name.trim() !== '');
 
 	if (!validNames || validNames.length === 0) {
-		return 'Unknown';
+		return '';
 	}
 
 	if (validNames.length > 2) {
@@ -47,7 +48,7 @@ function formatNames(people: { name?: string | null }[] | null): string {
 	} else if (validNames.length === 2) {
 		return validNames.join(', ');
 	} else {
-		return validNames[0] || 'Unknown';
+		return validNames[0] || '';
 	}
 }
 
@@ -64,6 +65,7 @@ function validateTMDBResponse(data: unknown): data is TMDBMediaBase {
  * Normalizes cast member from TMDB to camelCase.
  */
 export function normalizeCastMember(cast: CastMember): NormalizedCastMember {
+	const character = stripVoiceSuffix(normalizedText(cast.character));
 	return {
 		adult: cast.adult,
 		gender: cast.gender,
@@ -73,7 +75,7 @@ export function normalizeCastMember(cast: CastMember): NormalizedCastMember {
 		originalName: cast.original_name,
 		popularity: cast.popularity,
 		profilePath: cast.profile_path,
-		character: cast.character,
+		character: character.length > 0 ? character : 'Character',
 		creditId: cast.credit_id,
 		order: cast.order,
 		castId: cast.cast_id
@@ -103,6 +105,15 @@ function normalizedText(value: unknown): string {
 	return typeof value === 'string' ? value.trim() : '';
 }
 
+function stripVoiceSuffix(value: string): string {
+	let next = value.trim();
+	const voiceSuffixPattern = /\s*\(voice\)\s*$/i;
+	while (voiceSuffixPattern.test(next)) {
+		next = next.replace(voiceSuffixPattern, '').trim();
+	}
+	return next;
+}
+
 function pickPrimaryAggregateCastRole(member: AggregateCastMember) {
 	const roles = Array.isArray(member.roles) ? member.roles : [];
 	if (roles.length === 0) return null;
@@ -115,20 +126,160 @@ function pickPrimaryAggregateCastRole(member: AggregateCastMember) {
 	})[0];
 }
 
-function pickPrimaryAggregateCrewJob(member: AggregateCrewMember) {
-	const jobs = Array.isArray(member.jobs) ? member.jobs : [];
-	if (jobs.length === 0) return null;
-	return [...jobs].sort((left, right) => {
-		const episodeDelta = (right.episode_count ?? 0) - (left.episode_count ?? 0);
-		if (episodeDelta !== 0) return episodeDelta;
-		const leftDepartment = normalizedText(left.department);
-		const rightDepartment = normalizedText(right.department);
-		const departmentDelta = leftDepartment.localeCompare(rightDepartment);
-		if (departmentDelta !== 0) return departmentDelta;
-		const leftJob = normalizedText(left.job);
-		const rightJob = normalizedText(right.job);
-		return leftJob.localeCompare(rightJob);
-	})[0];
+type CrewSortStrategy = 'alphabetical' | 'movie' | 'tv_live_action' | 'tv_anime';
+const ORIGINAL_CREATOR_JOB = 'Original Creator';
+const SERIES_DIRECTOR_JOB = 'series director';
+type TVCreatorSeed = { id: number; name: string };
+
+function normalizedSortKey(value: unknown): string {
+	return normalizedText(value)
+		.toLowerCase()
+		.replace(/\s+/g, ' ');
+}
+
+function isAnimeCreatorSourceJob(job: string): boolean {
+	const normalizedJob = normalizedSortKey(job);
+	return normalizedJob.includes('comic book') || normalizedJob.includes('original concept');
+}
+
+function animeCreatorSourceRank(job: string): number {
+	const normalizedJob = normalizedSortKey(job);
+	if (normalizedJob.includes('comic book')) return 0;
+	if (normalizedJob.includes('original concept')) return 1;
+	return 2;
+}
+
+function crewPriorityRank(
+	member: Pick<NormalizedCrewMember, 'job' | 'department'>,
+	strategy: CrewSortStrategy
+): number {
+	const normalizedJob = normalizedSortKey(member.job);
+	const normalizedDepartment = normalizedSortKey(member.department);
+	if (strategy === 'movie') {
+		return normalizedDepartment === 'directing' && normalizedJob === 'director' ? 0 : 1;
+	}
+	if (strategy === 'tv_live_action') {
+		return normalizedJob === 'creator' ? 0 : 1;
+	}
+	if (strategy === 'tv_anime') {
+		if (normalizedJob === normalizedSortKey(ORIGINAL_CREATOR_JOB) || isAnimeCreatorSourceJob(member.job))
+			return 0;
+		if (normalizedJob === SERIES_DIRECTOR_JOB) return 1;
+		return 2;
+	}
+	return 0;
+}
+
+function applyCrewDisplayOverrides(
+	rows: NormalizedCrewMember[],
+	strategy: CrewSortStrategy,
+	options?: { tvCreatorSeeds?: ReadonlyArray<TVCreatorSeed> | null }
+): NormalizedCrewMember[] {
+	if (strategy === 'tv_live_action') {
+		const creatorSeeds = options?.tvCreatorSeeds ?? [];
+		if (creatorSeeds.length === 0) return rows;
+		const rowsByPersonId = new Map<number, NormalizedCrewMember>();
+		const hasCreatorJob = new Set<number>();
+		for (const row of rows) {
+			if (!rowsByPersonId.has(row.id)) {
+				rowsByPersonId.set(row.id, row);
+			}
+			if (normalizedSortKey(row.job) === 'creator') {
+				hasCreatorJob.add(row.id);
+			}
+		}
+		const synthesizedRows: NormalizedCrewMember[] = [];
+		const seenIds = new Set<number>();
+		for (const seed of creatorSeeds) {
+			if (!Number.isFinite(seed.id) || seed.id <= 0) continue;
+			if (seenIds.has(seed.id)) continue;
+			seenIds.add(seed.id);
+			if (hasCreatorJob.has(seed.id)) continue;
+			const matched = rowsByPersonId.get(seed.id);
+			const seedName = normalizedText(seed.name);
+			const fallbackName = normalizedText(matched?.name);
+			const resolvedName = seedName.length > 0 ? seedName : fallbackName;
+			if (resolvedName.length === 0) continue;
+			const matchedOriginalName = normalizedText(matched?.originalName);
+			synthesizedRows.push({
+				adult: matched?.adult ?? false,
+				gender: matched?.gender ?? 0,
+				id: seed.id,
+				knownForDepartment: matched?.knownForDepartment ?? 'Creator',
+				name: resolvedName,
+				originalName: matchedOriginalName.length > 0 ? matchedOriginalName : resolvedName,
+				popularity: matched?.popularity ?? 0,
+				profilePath: matched?.profilePath ?? null,
+				creditId: `synthetic:creator:${seed.id}`,
+				department: 'Creator',
+				job: 'Creator'
+			});
+		}
+		return synthesizedRows.length > 0 ? rows.concat(synthesizedRows) : rows;
+	}
+
+	if (strategy !== 'tv_anime') return rows;
+	const creatorByIdentity = new Map<string, { row: NormalizedCrewMember; rank: number }>();
+	const passthrough: NormalizedCrewMember[] = [];
+
+	for (const row of rows) {
+		if (!isAnimeCreatorSourceJob(row.job)) {
+			passthrough.push(row);
+			continue;
+		}
+		const identityKey =
+			Number.isFinite(row.id) && row.id > 0
+				? `id:${row.id}`
+				: `name:${normalizedSortKey(row.name)}`;
+		const normalizedCreatorRow: NormalizedCrewMember = {
+			...row,
+			job: ORIGINAL_CREATOR_JOB
+		};
+		const incomingRank = animeCreatorSourceRank(row.job);
+		const existing = creatorByIdentity.get(identityKey);
+		if (!existing) {
+			creatorByIdentity.set(identityKey, { row: normalizedCreatorRow, rank: incomingRank });
+			continue;
+		}
+		if (incomingRank < existing.rank) {
+			creatorByIdentity.set(identityKey, { row: normalizedCreatorRow, rank: incomingRank });
+		}
+	}
+
+	return [...creatorByIdentity.values()].map((entry) => entry.row).concat(passthrough);
+}
+
+function sortCrewRows(
+	rows: NormalizedCrewMember[],
+	strategy: CrewSortStrategy
+): NormalizedCrewMember[] {
+	if (rows.length < 2) return rows;
+	return [...rows].sort((left, right) => {
+		const priorityDelta = crewPriorityRank(left, strategy) - crewPriorityRank(right, strategy);
+		if (priorityDelta !== 0) return priorityDelta;
+
+		const leftJob = normalizedSortKey(left.job);
+		const rightJob = normalizedSortKey(right.job);
+		const jobDelta = leftJob.localeCompare(rightJob);
+		if (jobDelta !== 0) return jobDelta;
+
+		const leftName = normalizedSortKey(left.name);
+		const rightName = normalizedSortKey(right.name);
+		const nameDelta = leftName.localeCompare(rightName);
+		if (nameDelta !== 0) return nameDelta;
+
+		return normalizedSortKey(left.creditId).localeCompare(normalizedSortKey(right.creditId));
+	});
+}
+
+function resolveCrewSortStrategy(
+	mediaType: MediaType,
+	options?: { isAnime?: boolean | null }
+): CrewSortStrategy {
+	if (mediaType === 'movie') return 'movie';
+	if (options?.isAnime === true) return 'tv_anime';
+	if (options?.isAnime === false) return 'tv_live_action';
+	return 'alphabetical';
 }
 
 export function normalizeAggregateCastMember(
@@ -136,7 +287,7 @@ export function normalizeAggregateCastMember(
 ): NormalizedCastMember | null {
 	const role = pickPrimaryAggregateCastRole(member);
 	if (!role) return null;
-	const character = normalizedText(role.character);
+	const character = stripVoiceSuffix(normalizedText(role.character));
 	const creditId = normalizedText(role.credit_id);
 	const knownForDepartment = normalizedText(member.known_for_department);
 	return {
@@ -157,26 +308,31 @@ export function normalizeAggregateCastMember(
 
 export function normalizeAggregateCrewMember(
 	member: AggregateCrewMember
-): NormalizedCrewMember | null {
-	const job = pickPrimaryAggregateCrewJob(member);
-	if (!job) return null;
-	const creditId = normalizedText(job.credit_id);
-	const department = normalizedText(job.department);
-	const normalizedJob = normalizedText(job.job);
+): NormalizedCrewMember[] {
+	const jobs = Array.isArray(member.jobs) ? member.jobs : [];
+	if (jobs.length === 0) return [];
 	const knownForDepartment = normalizedText(member.known_for_department);
-	return {
-		adult: member.adult,
-		gender: member.gender,
-		id: member.id,
-		knownForDepartment: knownForDepartment.length > 0 ? knownForDepartment : 'Production',
-		name: member.name,
-		originalName: member.original_name,
-		popularity: member.popularity,
-		profilePath: member.profile_path,
-		creditId: creditId.length > 0 ? creditId : `aggregate:crew:${member.id}:${normalizedJob || 'crew'}`,
-		department: department.length > 0 ? department : 'Production',
-		job: normalizedJob.length > 0 ? normalizedJob : 'Crew'
-	};
+	return jobs.map((job, index) => {
+		const creditId = normalizedText(job.credit_id);
+		const department = normalizedText(job.department);
+		const normalizedJob = normalizedText(job.job);
+		return {
+			adult: member.adult,
+			gender: member.gender,
+			id: member.id,
+			knownForDepartment: knownForDepartment.length > 0 ? knownForDepartment : 'Production',
+			name: member.name,
+			originalName: member.original_name,
+			popularity: member.popularity,
+			profilePath: member.profile_path,
+			creditId:
+				creditId.length > 0
+					? creditId
+					: `aggregate:crew:${member.id}:${normalizedJob || 'crew'}:${index}`,
+			department: department.length > 0 ? department : 'Production',
+			job: normalizedJob.length > 0 ? normalizedJob : 'Crew'
+		};
+	});
 }
 
 /**
@@ -186,6 +342,7 @@ function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
 	const castMembers = Array.isArray(data.credits?.cast) ? data.credits.cast : [];
 	const crewMembers = Array.isArray(data.credits?.crew) ? data.credits.crew : [];
 	const directors = crewMembers.filter((member) => member.job === 'Director');
+	const normalizedMovieCrew = sortCrewRows(crewMembers.map(normalizeCrewMember), 'movie');
 
 	return {
 		mediaType: 'movie',
@@ -202,7 +359,7 @@ function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
 		budget: data.budget,
 		credits: {
 			cast: castMembers.map(normalizeCastMember),
-			crew: crewMembers.map(normalizeCrewMember)
+			crew: normalizedMovieCrew
 		},
 		director: formatNames(directors),
 		directorList: directors.map(normalizeCrewMember),
@@ -251,8 +408,7 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 		.map(normalizeAggregateCastMember)
 		.filter((member): member is NormalizedCastMember => member !== null);
 	const aggregateCrewMembers = (Array.isArray(data.aggregate_credits?.crew) ? data.aggregate_credits?.crew : [])
-		.map(normalizeAggregateCrewMember)
-		.filter((member): member is NormalizedCrewMember => member !== null);
+		.flatMap(normalizeAggregateCrewMember);
 	const normalizedCastMembers =
 		aggregateCastMembers.length > 0
 			? aggregateCastMembers
@@ -261,6 +417,7 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 		aggregateCrewMembers.length > 0
 			? aggregateCrewMembers
 			: (Array.isArray(data.credits?.crew) ? data.credits.crew : []).map(normalizeCrewMember);
+	const sortedCrewMembers = sortCrewRows(normalizedCrewMembers, 'alphabetical');
 
 	const normalizeEpisode = (ep: TMDBEpisode | null) => {
 		if (!ep) return null;
@@ -296,7 +453,7 @@ function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
 		})),
 		credits: {
 			cast: normalizedCastMembers,
-			crew: normalizedCrewMembers
+			crew: sortedCrewMembers
 		},
 		episodeRunTime: data.episode_run_time,
 		genres: data.genres,
@@ -383,8 +540,7 @@ function normalizeTVAggregateCreditsPayload(raw: unknown): NormalizedCredits {
 			.map(normalizeAggregateCastMember)
 			.filter((member): member is NormalizedCastMember => member !== null),
 		crew: (Array.isArray(payload.crew) ? payload.crew : [])
-			.map(normalizeAggregateCrewMember)
-			.filter((member): member is NormalizedCrewMember => member !== null)
+			.flatMap(normalizeAggregateCrewMember)
 	};
 }
 
@@ -392,7 +548,11 @@ export async function fetchCreditsFromTMDB(
 	mediaType: MediaType,
 	id: number,
 	targetCoverage: 'preview' | 'full' = 'full',
-	options?: { seasonNumber?: number | null }
+	options?: {
+		seasonNumber?: number | null;
+		isAnime?: boolean | null;
+		tvCreatorSeeds?: TVCreatorSeed[] | null;
+	}
 ): Promise<{
 	coverage: 'preview' | 'full';
 	cast: NormalizedCastMember[];
@@ -437,12 +597,18 @@ export async function fetchCreditsFromTMDB(
 	}
 
 	const castTotal = normalized.cast.length;
-	const crewTotal = normalized.crew.length;
+	const crewSortStrategy = resolveCrewSortStrategy(mediaType, { isAnime: options?.isAnime });
+	const normalizedCrew = applyCrewDisplayOverrides(normalized.crew, crewSortStrategy, {
+		tvCreatorSeeds: options?.tvCreatorSeeds ?? null
+	});
+	const sortedCrew = sortCrewRows(normalizedCrew, crewSortStrategy);
+	const crewTotal = sortedCrew.length;
+	const prioritizedCast = prioritizeSpecificCastRows(normalized.cast);
 	if (targetCoverage === 'full') {
 		return {
 			coverage: 'full',
-			cast: normalized.cast,
-			crew: normalized.crew,
+			cast: prioritizedCast,
+			crew: sortedCrew,
 			castTotal,
 			crewTotal
 		};
@@ -450,8 +616,10 @@ export async function fetchCreditsFromTMDB(
 	const hasMore = castTotal > TMDB_PREVIEW_CREDITS_LIMIT || crewTotal > TMDB_PREVIEW_CREDITS_LIMIT;
 	return {
 		coverage: hasMore ? 'preview' : 'full',
-		cast: hasMore ? normalized.cast.slice(0, TMDB_PREVIEW_CREDITS_LIMIT) : normalized.cast,
-		crew: hasMore ? normalized.crew.slice(0, TMDB_PREVIEW_CREDITS_LIMIT) : normalized.crew,
+		cast: hasMore
+			? prioritizedCast.slice(0, TMDB_PREVIEW_CREDITS_LIMIT)
+			: prioritizedCast,
+		crew: hasMore ? sortedCrew.slice(0, TMDB_PREVIEW_CREDITS_LIMIT) : sortedCrew,
 		castTotal,
 		crewTotal
 	};

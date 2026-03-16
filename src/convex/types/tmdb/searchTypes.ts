@@ -1,13 +1,13 @@
 export interface TMDBPersonKnownForItem {
 	id?: number;
-	media_type?: 'movie' | 'tv' | 'person';
+	media_type?: string;
 	title?: string;
 	name?: string;
 }
 
 export interface TMDBSearchItem {
 	id: number;
-	media_type: 'movie' | 'tv' | 'person';
+	media_type: string;
 	title?: string;
 	name?: string;
 	original_title?: string;

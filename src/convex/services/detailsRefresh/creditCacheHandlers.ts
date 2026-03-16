@@ -19,6 +19,11 @@ type UpsertCreditCacheArgs = {
 	nextRefreshAt: number;
 };
 
+function normalizeSeasonKey(seasonKey: string | null | undefined): string | null {
+	const trimmed = seasonKey?.trim() ?? '';
+	return trimmed.length > 0 ? trimmed : null;
+}
+
 function pickLatestByFetchedAt<T extends { fetchedAt: number; _creationTime: number }>(
 	rows: T[]
 ): T | null {
@@ -44,7 +49,7 @@ export async function getCreditCacheBySourceHandler(
 	ctx: QueryCtx,
 	args: { mediaType: MediaType; tmdbId: number; source: CreditSource; seasonKey?: string | null }
 ): Promise<CreditCacheSnapshot | null> {
-	const normalizedSeasonKey = args.seasonKey ?? null;
+	const normalizedSeasonKey = normalizeSeasonKey(args.seasonKey);
 	const rows = await ctx.db
 		.query('creditCache')
 		.withIndex('by_mediaType_tmdbId_source_seasonKey', (q) =>
@@ -73,7 +78,7 @@ export async function getCreditCacheBySourceHandler(
 }
 
 export async function upsertCreditCacheHandler(ctx: MutationCtx, args: UpsertCreditCacheArgs) {
-	const normalizedSeasonKey = args.seasonKey ?? null;
+	const normalizedSeasonKey = normalizeSeasonKey(args.seasonKey);
 	const rows = await ctx.db
 		.query('creditCache')
 		.withIndex('by_mediaType_tmdbId_source_seasonKey', (q) =>
@@ -127,37 +132,4 @@ export async function upsertCreditCacheHandler(ctx: MutationCtx, args: UpsertCre
 		if (row._id === existing._id) continue;
 		await ctx.db.delete(row._id);
 	}
-}
-
-export async function upsertStoredMediaCreditsHandler(
-	ctx: MutationCtx,
-	args: {
-		mediaType: MediaType;
-		tmdbId: number;
-		castCredits: StoredCastCredit[];
-		crewCredits: StoredCrewCredit[];
-	}
-) {
-	if (args.mediaType === 'movie') {
-		const row = await ctx.db
-			.query('movies')
-			.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
-			.unique();
-		if (!row) return;
-		await ctx.db.patch(row._id, {
-			castCredits: args.castCredits,
-			crewCredits: args.crewCredits
-		});
-		return;
-	}
-
-	const row = await ctx.db
-		.query('tvShows')
-		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', args.tmdbId))
-		.unique();
-	if (!row) return;
-	await ctx.db.patch(row._id, {
-		castCredits: args.castCredits,
-		crewCredits: args.crewCredits
-	});
 }

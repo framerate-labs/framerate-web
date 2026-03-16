@@ -31,9 +31,7 @@ const MOVIE_SYNC_POLICY = {
 	runtime: 'tmdb_authoritative',
 	isAnime: 'tmdb_authoritative',
 	isAnimeSource: 'tmdb_authoritative',
-	creatorCredits: 'tmdb_authoritative',
-	castCredits: 'tmdb_authoritative',
-	crewCredits: 'tmdb_authoritative'
+	creatorCredits: 'tmdb_authoritative'
 } as const satisfies Record<string, SyncPolicy>;
 
 const TV_SYNC_POLICY = {
@@ -50,9 +48,7 @@ const TV_SYNC_POLICY = {
 	nextEpisodeToAir: 'tmdb_authoritative',
 	isAnime: 'tmdb_authoritative',
 	isAnimeSource: 'tmdb_authoritative',
-	creatorCredits: 'tmdb_authoritative',
-	castCredits: 'tmdb_authoritative',
-	crewCredits: 'tmdb_authoritative'
+	creatorCredits: 'tmdb_authoritative'
 } as const satisfies Record<string, SyncPolicy>;
 
 export async function getStoredMediaHandler(
@@ -77,8 +73,6 @@ export async function getStoredMediaHandler(
 			status: movie.status ?? null,
 			runtime: movie.runtime,
 			creatorCredits: movie.creatorCredits,
-			castCredits: movie.castCredits,
-			crewCredits: movie.crewCredits,
 			isAnime: movie.isAnime ?? null
 		} satisfies StoredMediaSnapshot;
 	}
@@ -100,8 +94,6 @@ export async function getStoredMediaHandler(
 		lastEpisodeToAir: tvShow.lastEpisodeToAir,
 		nextEpisodeToAir: tvShow.nextEpisodeToAir,
 		creatorCredits: tvShow.creatorCredits,
-		castCredits: tvShow.castCredits,
-		crewCredits: tvShow.crewCredits,
 		isAnime: tvShow.isAnime ?? null
 	} satisfies StoredMediaSnapshot;
 }

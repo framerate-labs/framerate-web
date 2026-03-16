@@ -98,7 +98,6 @@ function buildTVSeasonItems(tmdbId: number, seasons: TVSeasonSummary[]) {
 				seasonOrdinal: season.seasonNumber > 0 ? season.seasonNumber : null,
 				episodeNumberingMode: 'restarting',
 				episodeDisplayStart: null,
-				memberAnilistIds: [],
 				seasonSources: [
 					{
 						tmdbType: 'tv',

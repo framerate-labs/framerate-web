@@ -16,8 +16,7 @@ import {
 } from './services/detailsRefresh/constants';
 import {
 	getCreditCacheBySourceHandler,
-	upsertCreditCacheHandler,
-	upsertStoredMediaCreditsHandler
+	upsertCreditCacheHandler
 } from './services/detailsRefresh/creditCacheHandlers';
 import {
 	getStoredMediaHandler,
@@ -123,9 +122,7 @@ const creditSourceValidator = v.union(v.literal('tmdb'), v.literal('anilist'));
 const creditCoverageValidator = v.union(v.literal('preview'), v.literal('full'));
 const creditSeasonContextValidator = v.object({
 	seasonKey: v.string(),
-	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null())),
-	seasonOrdinal: v.optional(v.union(v.number(), v.null())),
-	memberAnilistIds: v.optional(v.union(v.array(v.number()), v.null()))
+	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null()))
 });
 
 function parseNumericTMDBId(id: number | string): number | null {
@@ -168,9 +165,7 @@ export const insertMedia = internalMutation({
 		nextRefreshAt: v.number(),
 		isAnime: v.boolean(),
 		isAnimeSource: v.union(v.literal('auto'), v.literal('manual')),
-		creatorCredits: v.array(detailCreatorCreditValidator),
-		castCredits: v.array(detailCastCreditValidator),
-		crewCredits: v.array(detailCrewCreditValidator)
+		creatorCredits: v.array(detailCreatorCreditValidator)
 	},
 	handler: insertMediaHandler
 });
@@ -200,16 +195,6 @@ export const upsertCreditCache = internalMutation({
 		nextRefreshAt: v.number()
 	},
 	handler: upsertCreditCacheHandler
-});
-
-export const upsertStoredMediaCredits = internalMutation({
-	args: {
-		mediaType: mediaTypeValidator,
-		tmdbId: v.number(),
-		castCredits: v.array(detailCastCreditValidator),
-		crewCredits: v.array(detailCrewCreditValidator)
-	},
-	handler: upsertStoredMediaCreditsHandler
 });
 
 export const tryAcquireRefreshLease = internalMutation({
@@ -335,13 +320,20 @@ export const refreshIfStale = action({
 		source: v.optional(sourceValidator),
 		force: v.optional(v.boolean()),
 		skipQueueUpsert: v.optional(v.boolean()),
+		skipDetailRefresh: v.optional(v.boolean()),
 		creditCoverageTarget: v.optional(creditCoverageValidator),
 		creditSeasonContext: v.optional(v.union(creditSeasonContextValidator, v.null()))
 	},
 	handler: async (ctx, args): Promise<RefreshIfStaleResult> => {
 		const source = args.source ?? 'tmdb';
 		const tmdbNumericId = source === 'tmdb' ? parseNumericTMDBId(args.id) : null;
-		const shouldUpsertQueueRow = args.skipQueueUpsert !== true && tmdbNumericId != null;
+		const effectiveSkipDetailRefresh =
+			args.skipDetailRefresh === true ||
+			(args.creditCoverageTarget !== undefined && args.force !== true);
+		const shouldUpsertQueueRow =
+			args.skipQueueUpsert !== true &&
+			tmdbNumericId != null &&
+			effectiveSkipDetailRefresh === false;
 		const now = Date.now();
 		if (shouldUpsertQueueRow) {
 			const externalId = tmdbNumericId;
@@ -362,13 +354,15 @@ export const refreshIfStale = action({
 				id: args.id,
 				source: args.source,
 				force: args.force,
+				skipDetailRefresh: effectiveSkipDetailRefresh,
 				creditCoverageTarget: args.creditCoverageTarget,
 				creditSeasonContext: args.creditSeasonContext ?? null
 			},
 			DETAIL_REFRESH_CONFIG
 		);
 
-		const shouldCheckAnimeEnrichment = tmdbNumericId != null;
+		const shouldCheckAnimeEnrichment =
+			tmdbNumericId != null && effectiveSkipDetailRefresh === false;
 
 		if (shouldCheckAnimeEnrichment) {
 			const tmdbId = tmdbNumericId;
@@ -401,30 +395,6 @@ export const refreshIfStale = action({
 
 		return result;
 	}
-});
-
-export const refreshAnimeCreditsInBackground = internalAction({
-	args: {
-		mediaType: mediaTypeValidator,
-		id: v.number(),
-		creditCoverageTarget: v.optional(creditCoverageValidator),
-		creditSeasonContext: v.optional(v.union(creditSeasonContextValidator, v.null()))
-	},
-	handler: async (ctx, args): Promise<RefreshIfStaleResult> =>
-		runRefreshIfStale(
-			ctx,
-			{
-				mediaType: args.mediaType,
-				id: args.id,
-				source: 'tmdb',
-				force: false,
-				skipDetailRefresh: true,
-				creditSourceOverride: 'anilist',
-				creditCoverageTarget: args.creditCoverageTarget,
-				creditSeasonContext: args.creditSeasonContext ?? null
-			},
-			DETAIL_REFRESH_CONFIG
-		)
 });
 
 export const sweepStaleDetails = internalAction({

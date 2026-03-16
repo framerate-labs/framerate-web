@@ -20,9 +20,17 @@ const normalizedSearchItemValidator = v.object({
 	id: v.number(),
 	mediaType: v.union(v.literal('movie'), v.literal('tv'), v.literal('person')),
 	title: v.string(),
-	posterPath: v.union(v.string(), v.null()),
-	knownForDepartment: v.union(v.string(), v.null()),
-	releaseYear: v.union(v.number(), v.null())
+	originalTitle: v.optional(v.string()),
+	overview: v.optional(v.union(v.string(), v.null())),
+	posterPath: v.optional(v.union(v.string(), v.null())),
+	knownForDepartment: v.optional(v.union(v.string(), v.null())),
+	releaseYear: v.optional(v.union(v.number(), v.null())),
+	backdropPath: v.optional(v.union(v.string(), v.null())),
+	popularity: v.optional(v.number()),
+	releaseDate: v.optional(v.union(v.string(), v.null())),
+	voteAverage: v.optional(v.union(v.number(), v.null())),
+	voteCount: v.optional(v.union(v.number(), v.null())),
+	adult: v.optional(v.boolean())
 });
 
 function normalizeQuery(query: string): string {
@@ -103,9 +111,9 @@ export const presentSearchResults = internalQuery({
 				id: item.id,
 				mediaType: item.mediaType,
 				title: item.title,
-				posterPath: item.posterPath,
-				knownForDepartment: item.knownForDepartment,
-				releaseYear: item.releaseYear
+				posterPath: item.posterPath ?? null,
+				knownForDepartment: item.knownForDepartment ?? null,
+				releaseYear: item.releaseYear ?? null
 			}))
 		);
 	}
@@ -210,13 +218,37 @@ export const searchMedia = action({
 		const safeLimit = Math.max(1, Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
 		const now = Date.now();
 
-		const cached = await ctx.runQuery(internal.search.getCachedResults, {
-			queryKey: normalizedQuery,
-			limit: safeLimit,
-			now
-		});
+		let cached: { items: Array<{
+			id: number;
+			mediaType: 'movie' | 'tv' | 'person';
+			title: string;
+			posterPath?: string | null;
+			knownForDepartment?: string | null;
+			releaseYear?: number | null;
+		}> } | null = null;
+		try {
+			cached = await ctx.runQuery(internal.search.getCachedResults, {
+				queryKey: normalizedQuery,
+				limit: safeLimit,
+				now
+			});
+		} catch (error) {
+			console.warn('[search] cache read failed; falling back to TMDB', {
+				queryKey: normalizedQuery,
+				limit: safeLimit,
+				error
+			});
+		}
 		if (cached) {
-			return await ctx.runQuery(internal.search.presentSearchResults, { items: cached.items });
+			try {
+				return await ctx.runQuery(internal.search.presentSearchResults, { items: cached.items });
+			} catch (error) {
+				console.warn('[search] cached payload rejected; falling back to TMDB', {
+					queryKey: normalizedQuery,
+					limit: safeLimit,
+					error
+				});
+			}
 		}
 
 		await ctx.runMutation(internal.search.enforceRateLimit, {
@@ -234,12 +266,20 @@ export const searchMedia = action({
 			releaseYear: item.releaseYear
 		}));
 
-		await ctx.runMutation(internal.search.storeCachedResults, {
-			queryKey: normalizedQuery,
-			limit: safeLimit,
-			items: cacheItems,
-			fetchedAt: now
-		});
+		try {
+			await ctx.runMutation(internal.search.storeCachedResults, {
+				queryKey: normalizedQuery,
+				limit: safeLimit,
+				items: cacheItems,
+				fetchedAt: now
+			});
+		} catch (error) {
+			console.warn('[search] cache write failed; serving fresh TMDB results', {
+				queryKey: normalizedQuery,
+				limit: safeLimit,
+				error
+			});
+		}
 
 		return await ctx.runQuery(internal.search.presentSearchResults, { items: cacheItems });
 	}

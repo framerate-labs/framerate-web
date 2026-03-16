@@ -114,8 +114,6 @@ export type StoredMediaSnapshot = {
 	posterPath?: string | null;
 	backdropPath?: string | null;
 	creatorCredits?: HeaderContributorInput[] | null;
-	castCredits?: StoredCastCredit[] | null;
-	crewCredits?: StoredCrewCredit[] | null;
 	isAnime?: boolean | null;
 };
 
@@ -139,13 +137,10 @@ export type RefreshIfStaleArgs = {
 	source?: 'tmdb' | 'trakt' | 'imdb';
 	force?: boolean;
 	skipDetailRefresh?: boolean;
-	creditSourceOverride?: CreditSource;
 	creditCoverageTarget?: CreditCoverage;
 	creditSeasonContext?: {
 		seasonKey: string;
 		tmdbSeasonNumber?: number | null;
-		seasonOrdinal?: number | null;
-		memberAnilistIds?: number[] | null;
 	} | null;
 };
 
@@ -171,8 +166,6 @@ export type StoredMovieDoc = NonNullable<Awaited<ReturnType<typeof getMovieBySou
 	nextRefreshAt?: number;
 	refreshErrorCount?: number;
 	creatorCredits?: HeaderContributorInput[];
-	castCredits?: StoredCastCredit[];
-	crewCredits?: StoredCrewCredit[];
 };
 
 export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySource>>> & {
@@ -189,8 +182,6 @@ export type StoredTVDoc = NonNullable<Awaited<ReturnType<typeof getTVShowBySourc
 	nextRefreshAt?: number;
 	refreshErrorCount?: number;
 	creatorCredits?: HeaderContributorInput[];
-	castCredits?: StoredCastCredit[];
-	crewCredits?: StoredCrewCredit[];
 };
 
 export type SourceIdentifiers = {
@@ -221,8 +212,6 @@ export type InsertMediaArgs = {
 	isAnime: boolean;
 	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
-	castCredits: StoredCastCredit[];
-	crewCredits: StoredCrewCredit[];
 };
 
 export type MovieInsertDoc = SourceIdentifiers & {
@@ -237,8 +226,6 @@ export type MovieInsertDoc = SourceIdentifiers & {
 	isAnime: boolean;
 	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
-	castCredits: StoredCastCredit[];
-	crewCredits: StoredCrewCredit[];
 	overview: string | null;
 	status: string;
 	runtime: number | null;
@@ -256,8 +243,6 @@ export type TVInsertDoc = SourceIdentifiers & {
 	isAnime: boolean;
 	isAnimeSource: 'auto' | 'manual';
 	creatorCredits: HeaderContributorInput[];
-	castCredits: StoredCastCredit[];
-	crewCredits: StoredCrewCredit[];
 	overview: string | null;
 	status: string;
 	numberOfSeasons?: number | null;

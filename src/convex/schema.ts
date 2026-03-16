@@ -146,9 +146,17 @@ export default defineSchema({
 				id: v.number(),
 				mediaType: v.union(v.literal('movie'), v.literal('tv'), v.literal('person')),
 				title: v.string(),
-				posterPath: v.union(v.string(), v.null()),
-				knownForDepartment: v.union(v.string(), v.null()),
-				releaseYear: v.union(v.number(), v.null())
+				originalTitle: v.optional(v.string()),
+				overview: v.optional(v.union(v.string(), v.null())),
+				posterPath: v.optional(v.union(v.string(), v.null())),
+				knownForDepartment: v.optional(v.union(v.string(), v.null())),
+				releaseYear: v.optional(v.union(v.number(), v.null())),
+				backdropPath: v.optional(v.union(v.string(), v.null())),
+				popularity: v.optional(v.number()),
+				releaseDate: v.optional(v.union(v.string(), v.null())),
+				voteAverage: v.optional(v.union(v.number(), v.null())),
+				voteCount: v.optional(v.union(v.number(), v.null())),
+				adult: v.optional(v.boolean())
 			})
 		),
 		fetchedAt: v.number()
@@ -361,8 +369,6 @@ export default defineSchema({
 		isAnime: v.optional(v.boolean()),
 		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
-		castCredits: v.optional(v.array(storedCastCreditValidator)),
-		crewCredits: v.optional(v.array(storedCrewCreditValidator)),
 		overview: v.optional(v.union(v.string(), v.null())),
 		status: v.optional(v.union(v.string(), v.null())),
 		runtime: v.optional(v.union(v.number(), v.null())),
@@ -391,8 +397,6 @@ export default defineSchema({
 		isAnime: v.optional(v.boolean()),
 		isAnimeSource: v.optional(v.union(v.literal('auto'), v.literal('manual'))),
 		creatorCredits: v.optional(v.array(detailCreatorCreditValidator)),
-		castCredits: v.optional(v.array(storedCastCreditValidator)),
-		crewCredits: v.optional(v.array(storedCrewCreditValidator)),
 		overview: v.optional(v.union(v.string(), v.null())),
 		status: v.optional(v.union(v.string(), v.null())),
 		numberOfSeasons: v.optional(v.union(v.number(), v.null())),

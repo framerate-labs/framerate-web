@@ -11,8 +11,6 @@ import type {
 } from '../../types/detailsType';
 
 import {
-	sameCastCredits,
-	sameCrewCredits,
 	sameEpisodeSummary,
 	sameHeaderContributors,
 	sameTVSeasonSummaries,
@@ -30,8 +28,6 @@ type MovieSyncPolicyMap = {
 	isAnime: SyncPolicy;
 	isAnimeSource: SyncPolicy;
 	creatorCredits: SyncPolicy;
-	castCredits: SyncPolicy;
-	crewCredits: SyncPolicy;
 };
 
 type TVSyncPolicyMap = {
@@ -49,8 +45,6 @@ type TVSyncPolicyMap = {
 	isAnime: SyncPolicy;
 	isAnimeSource: SyncPolicy;
 	creatorCredits: SyncPolicy;
-	castCredits: SyncPolicy;
-	crewCredits: SyncPolicy;
 };
 
 function assignSourceIdentifier(
@@ -106,8 +100,6 @@ export function buildMovieInsertDoc(
 		isAnime: args.isAnime,
 		isAnimeSource: args.isAnimeSource,
 		creatorCredits: incomingCreatorCredits,
-		castCredits: args.castCredits,
-		crewCredits: args.crewCredits,
 		overview: args.overview,
 		status: args.status,
 		runtime: args.runtime
@@ -132,8 +124,6 @@ export function buildTVInsertDoc(
 		isAnime: args.isAnime,
 		isAnimeSource: args.isAnimeSource,
 		creatorCredits: incomingCreatorCredits,
-		castCredits: args.castCredits,
-		crewCredits: args.crewCredits,
 		overview: args.overview,
 		status: args.status,
 		numberOfSeasons: args.numberOfSeasons,
@@ -211,26 +201,6 @@ export function buildMoviePatch(
 		!sameHeaderContributors(existing.creatorCredits ?? [], incomingCreatorCredits)
 	) {
 		patch.creatorCredits = incomingCreatorCredits;
-	}
-	if (
-		shouldApplySyncPolicy(
-			syncPolicy.castCredits,
-			existing.castCredits ?? [],
-			args.castCredits
-		) &&
-		!sameCastCredits(existing.castCredits ?? [], args.castCredits)
-	) {
-		patch.castCredits = args.castCredits;
-	}
-	if (
-		shouldApplySyncPolicy(
-			syncPolicy.crewCredits,
-			existing.crewCredits ?? [],
-			args.crewCredits
-		) &&
-		!sameCrewCredits(existing.crewCredits ?? [], args.crewCredits)
-	) {
-		patch.crewCredits = args.crewCredits;
 	}
 
 	return patch;
@@ -342,26 +312,6 @@ export function buildTVPatch(
 		!sameHeaderContributors(existing.creatorCredits ?? [], incomingCreatorCredits)
 	) {
 		patch.creatorCredits = incomingCreatorCredits;
-	}
-	if (
-		shouldApplySyncPolicy(
-			syncPolicy.castCredits,
-			existing.castCredits ?? [],
-			args.castCredits
-		) &&
-		!sameCastCredits(existing.castCredits ?? [], args.castCredits)
-	) {
-		patch.castCredits = args.castCredits;
-	}
-	if (
-		shouldApplySyncPolicy(
-			syncPolicy.crewCredits,
-			existing.crewCredits ?? [],
-			args.crewCredits
-		) &&
-		!sameCrewCredits(existing.crewCredits ?? [], args.crewCredits)
-	) {
-		patch.crewCredits = args.crewCredits;
 	}
 
 	return patch;
