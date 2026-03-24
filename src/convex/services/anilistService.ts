@@ -68,7 +68,7 @@ export async function searchAniListAnimeCandidates(
 
 	const mediaRows = Array.isArray(data.Page?.media) ? data.Page?.media : [];
 	const normalized: AniListMediaCore[] = [];
-	for (const media of mediaRows ?? []) {
+	for (const media of mediaRows) {
 		const row = normalizeMediaCore(media);
 		if (row) normalized.push(row);
 	}
@@ -85,8 +85,8 @@ export async function fetchAniListAnimeMediaById(
 	let hasNextStaffPage = true;
 
 	let mergedMedia: AniListMediaCore | null = null;
-	let mergedCharacters: AniListCharacter[] = [];
-	let mergedStaff: AniListStaff[] = [];
+	const mergedCharacters: AniListCharacter[] = [];
+	const mergedStaff: AniListStaff[] = [];
 
 	for (
 		let page = 0;

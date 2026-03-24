@@ -174,72 +174,54 @@ export const resolveMediaLibraryState = internalQuery({
 		}
 
 		if (personTmdbId !== null) {
-			if (movieTmdbIdsToCheck.size > 0) {
-				const movieCredits = await ctx.db
-					.query('movieCredits')
-					.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
-					.collect();
-				for (const credit of movieCredits) {
-					if (credit.source !== PERSON_LINK_SOURCE) continue;
-					const mediaTmdbId =
-						typeof credit.mediaTmdbId === 'number'
-							? credit.mediaTmdbId
-							: (await ctx.db.get(credit.movieId))?.tmdbId;
-					if (typeof mediaTmdbId !== 'number') continue;
-					if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
-					linkedMovieIdByTmdbId.set(mediaTmdbId, credit.movieId);
-				}
+			const [movieCredits, tvCredits] = await Promise.all([
+				movieTmdbIdsToCheck.size > 0
+					? ctx.db
+							.query('movieCredits')
+							.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
+							.collect()
+					: Promise.resolve([]),
+				tvTmdbIdsToCheck.size > 0
+					? ctx.db
+							.query('tvCredits')
+							.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
+							.collect()
+					: Promise.resolve([])
+			]);
+			for (const credit of movieCredits) {
+				if (credit.source !== PERSON_LINK_SOURCE) continue;
+				if (!movieTmdbIdsToCheck.has(credit.mediaTmdbId)) continue;
+				linkedMovieIdByTmdbId.set(credit.mediaTmdbId, credit.movieId);
 			}
-
-			if (tvTmdbIdsToCheck.size > 0) {
-				const tvCredits = await ctx.db
-					.query('tvCredits')
-					.withIndex('by_personTmdbId', (q) => q.eq('personTmdbId', personTmdbId))
-					.collect();
-				for (const credit of tvCredits) {
-					if (credit.source !== PERSON_LINK_SOURCE) continue;
-					const mediaTmdbId =
-						typeof credit.mediaTmdbId === 'number'
-							? credit.mediaTmdbId
-							: (await ctx.db.get(credit.tvShowId))?.tmdbId;
-					if (typeof mediaTmdbId !== 'number') continue;
-					if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
-					linkedTVIdByTmdbId.set(mediaTmdbId, credit.tvShowId);
-				}
+			for (const credit of tvCredits) {
+				if (credit.source !== PERSON_LINK_SOURCE) continue;
+				if (!tvTmdbIdsToCheck.has(credit.mediaTmdbId)) continue;
+				linkedTVIdByTmdbId.set(credit.mediaTmdbId, credit.tvShowId);
 			}
 		} else if (companyTmdbId !== null) {
-			if (movieTmdbIdsToCheck.size > 0) {
-				const movieCompanyLinks = await ctx.db
-					.query('movieCompanies')
-					.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
-					.collect();
-				for (const link of movieCompanyLinks) {
-					if (link.source !== COMPANY_LINK_SOURCE) continue;
-					const mediaTmdbId =
-						typeof link.mediaTmdbId === 'number'
-							? link.mediaTmdbId
-							: (await ctx.db.get(link.movieId))?.tmdbId;
-					if (typeof mediaTmdbId !== 'number') continue;
-					if (!movieTmdbIdsToCheck.has(mediaTmdbId)) continue;
-					linkedMovieIdByTmdbId.set(mediaTmdbId, link.movieId);
-				}
+			const [movieCompanyLinks, tvCompanyLinks] = await Promise.all([
+				movieTmdbIdsToCheck.size > 0
+					? ctx.db
+							.query('movieCompanies')
+							.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
+							.collect()
+					: Promise.resolve([]),
+				tvTmdbIdsToCheck.size > 0
+					? ctx.db
+							.query('tvCompanies')
+							.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
+							.collect()
+					: Promise.resolve([])
+			]);
+			for (const link of movieCompanyLinks) {
+				if (link.source !== COMPANY_LINK_SOURCE) continue;
+				if (!movieTmdbIdsToCheck.has(link.mediaTmdbId)) continue;
+				linkedMovieIdByTmdbId.set(link.mediaTmdbId, link.movieId);
 			}
-
-			if (tvTmdbIdsToCheck.size > 0) {
-				const tvCompanyLinks = await ctx.db
-					.query('tvCompanies')
-					.withIndex('by_companyTmdbId', (q) => q.eq('companyTmdbId', companyTmdbId))
-					.collect();
-				for (const link of tvCompanyLinks) {
-					if (link.source !== COMPANY_LINK_SOURCE) continue;
-					const mediaTmdbId =
-						typeof link.mediaTmdbId === 'number'
-							? link.mediaTmdbId
-							: (await ctx.db.get(link.tvShowId))?.tmdbId;
-					if (typeof mediaTmdbId !== 'number') continue;
-					if (!tvTmdbIdsToCheck.has(mediaTmdbId)) continue;
-					linkedTVIdByTmdbId.set(mediaTmdbId, link.tvShowId);
-				}
+			for (const link of tvCompanyLinks) {
+				if (link.source !== COMPANY_LINK_SOURCE) continue;
+				if (!tvTmdbIdsToCheck.has(link.mediaTmdbId)) continue;
+				linkedTVIdByTmdbId.set(link.mediaTmdbId, link.tvShowId);
 			}
 		} else {
 			// Fallback path when link context is not available.

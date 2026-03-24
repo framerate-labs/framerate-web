@@ -380,10 +380,11 @@ async function replaceAnimeAlertsForTMDBHandler(
 		.query('animeAlerts')
 		.withIndex('by_tmdb', (q) => q.eq('tmdbType', args.tmdbType).eq('tmdbId', args.tmdbId))
 		.collect();
+	const dedupedAlerts = [...new Map(args.alerts.map((alert) => [alert.fingerprint, alert])).values()];
 	const existingByFingerprint = new Map(existing.map((row) => [row.fingerprint, row] as const));
-	const incomingFingerprints = new Set(args.alerts.map((alert) => alert.fingerprint));
+	const incomingFingerprints = new Set(dedupedAlerts.map((alert) => alert.fingerprint));
 
-	for (const alert of args.alerts) {
+	for (const alert of dedupedAlerts) {
 		const existingRow = existingByFingerprint.get(alert.fingerprint);
 		if (existingRow) {
 			await ctx.db.patch(existingRow._id, {
@@ -396,9 +397,7 @@ async function replaceAnimeAlertsForTMDBHandler(
 				detailsJson: alert.detailsJson,
 				lastDetectedAt: now,
 				lastSeenAt: now,
-				resolvedAt: incomingFingerprints.has(alert.fingerprint)
-					? null
-					: (existingRow.resolvedAt ?? null),
+				resolvedAt: null,
 				status: existingRow.status === 'resolved' ? 'open' : existingRow.status,
 				updatedAt: now
 			});
@@ -447,7 +446,7 @@ async function replaceAnimeAlertsForTMDBHandler(
 		}
 	}
 
-	return { ok: true, alerts: args.alerts.length };
+	return { ok: true, alerts: dedupedAlerts.length };
 }
 
 async function refreshAnimeAlertsForTMDBHandler(

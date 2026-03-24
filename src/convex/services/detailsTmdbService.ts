@@ -404,11 +404,15 @@ function normalizeMovieDetails(data: TMDBMovieDetails): NormalizedMovieDetails {
  * Normalizes TV details from TMDB response.
  */
 function normalizeTVDetails(data: TMDBTVDetails): NormalizedTVDetails {
-	const aggregateCastMembers = (Array.isArray(data.aggregate_credits?.cast) ? data.aggregate_credits?.cast : [])
+	const aggregateCredits = data.aggregate_credits;
+	const aggregateCastRows =
+		aggregateCredits && Array.isArray(aggregateCredits.cast) ? aggregateCredits.cast : [];
+	const aggregateCrewRows =
+		aggregateCredits && Array.isArray(aggregateCredits.crew) ? aggregateCredits.crew : [];
+	const aggregateCastMembers = aggregateCastRows
 		.map(normalizeAggregateCastMember)
 		.filter((member): member is NormalizedCastMember => member !== null);
-	const aggregateCrewMembers = (Array.isArray(data.aggregate_credits?.crew) ? data.aggregate_credits?.crew : [])
-		.flatMap(normalizeAggregateCrewMember);
+	const aggregateCrewMembers = aggregateCrewRows.flatMap(normalizeAggregateCrewMember);
 	const normalizedCastMembers =
 		aggregateCastMembers.length > 0
 			? aggregateCastMembers

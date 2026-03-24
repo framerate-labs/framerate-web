@@ -11,28 +11,6 @@ export type TVOverrideDoc = Doc<'tvOverrides'>;
 export type FinalMovieDoc = MovieDoc;
 export type FinalTVShowDoc = TVShowDoc;
 
-function latestByUpdatedAt<T extends { updatedAt?: number; _creationTime?: number }>(
-	rows: T[]
-): T | null {
-	let best: T | null = null;
-	let bestUpdatedAt = Number.NEGATIVE_INFINITY;
-	let bestCreatedAt = Number.NEGATIVE_INFINITY;
-	for (const row of rows) {
-		const updatedAt = row.updatedAt ?? 0;
-		const createdAt = row._creationTime ?? 0;
-		if (
-			best === null ||
-			updatedAt > bestUpdatedAt ||
-			(updatedAt === bestUpdatedAt && createdAt > bestCreatedAt)
-		) {
-			best = row;
-			bestUpdatedAt = updatedAt;
-			bestCreatedAt = createdAt;
-		}
-	}
-	return best;
-}
-
 /**
  * Looks up a movie by source and external ID.
  *
@@ -105,22 +83,22 @@ export async function getMovieOverrideByTMDBId(
 	ctx: QueryCtx | MutationCtx,
 	tmdbId: number
 ): Promise<MovieOverrideDoc | null> {
-	const rows = await ctx.db
+	return await ctx.db
 		.query('movieOverrides')
-		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', tmdbId))
-		.collect();
-	return latestByUpdatedAt(rows);
+		.withIndex('by_tmdbId_updatedAt', (q) => q.eq('tmdbId', tmdbId))
+		.order('desc')
+		.first();
 }
 
 export async function getTVOverrideByTMDBId(
 	ctx: QueryCtx | MutationCtx,
 	tmdbId: number
 ): Promise<TVOverrideDoc | null> {
-	const rows = await ctx.db
+	return await ctx.db
 		.query('tvOverrides')
-		.withIndex('by_tmdbId', (q) => q.eq('tmdbId', tmdbId))
-		.collect();
-	return latestByUpdatedAt(rows);
+		.withIndex('by_tmdbId_updatedAt', (q) => q.eq('tmdbId', tmdbId))
+		.order('desc')
+		.first();
 }
 
 export async function getFinalMovie(

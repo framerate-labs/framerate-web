@@ -81,6 +81,11 @@ const CLAIMABLE_QUEUE_STATES = ['queued', 'retry'] as const;
 const PRUNABLE_QUEUE_STATES = ['error', 'retry', 'idle'] as const;
 const ANIME_SYNC_QUEUE_RUNNING_STALE_MS = 30 * 60_000;
 const ANIME_SYNC_XREF_RETRY_INTERVAL_MS = 24 * 60 * 60_000;
+const ANIME_SYNC_QUEUE_CLAIM_SCAN_LIMIT_PER_STATE = 400;
+const ANIME_SYNC_QUEUE_ENQUEUE_SCAN_LIMIT_MULTIPLIER = 8;
+const ANIME_SYNC_QUEUE_PRUNE_SCAN_LIMIT_MULTIPLIER = 4;
+const ANIME_SYNC_QUEUE_SCAN_LIMIT_MIN = 200;
+const ANIME_SYNC_QUEUE_SCAN_LIMIT_MAX = 2000;
 
 type AnimeSyncQueueRow = Doc<'animeSyncQueue'>;
 type AnimeApiBudgetRow = Doc<'animeApiBudget'>;
@@ -267,11 +272,18 @@ async function enqueueStaleAnimeSyncQueueJobsHandler(
 ) {
 	const now = args.now;
 	const limit = Math.max(1, Math.min(args.limit ?? 25, 200));
+	const scanLimit = Math.max(
+		ANIME_SYNC_QUEUE_SCAN_LIMIT_MIN,
+		Math.min(
+			ANIME_SYNC_QUEUE_SCAN_LIMIT_MAX,
+			limit * ANIME_SYNC_QUEUE_ENQUEUE_SCAN_LIMIT_MULTIPLIER
+		)
+	);
 	const rows = await ctx.db
 		.query('animeSyncQueue')
 		.withIndex('by_nextRefreshAt', (q) => q.lte('nextRefreshAt', now))
 		.order('asc')
-		.collect();
+		.take(scanLimit);
 	let enqueued = 0;
 	for (const row of rows) {
 		if (enqueued >= limit) break;
@@ -296,16 +308,24 @@ async function claimNextAnimeSyncQueueJobHandler(
 	args: { now: number; jobType?: 'season' | 'timeline' }
 ) {
 	let picked: AnimeSyncQueueRow | null = null;
+	const jobType = args.jobType ?? null;
 	for (const state of CLAIMABLE_QUEUE_STATES) {
-		const rows = await ctx.db
-			.query('animeSyncQueue')
-			.withIndex('by_state_nextAttemptAt', (q) =>
-				q.eq('state', state).lte('nextAttemptAt', args.now)
-			)
-			.order('asc')
-			.collect();
+		const rows = jobType
+			? await ctx.db
+					.query('animeSyncQueue')
+					.withIndex('by_state_jobType_nextAttemptAt', (q) =>
+						q.eq('state', state).eq('jobType', jobType).lte('nextAttemptAt', args.now)
+					)
+					.order('asc')
+					.take(ANIME_SYNC_QUEUE_CLAIM_SCAN_LIMIT_PER_STATE)
+			: await ctx.db
+					.query('animeSyncQueue')
+					.withIndex('by_state_nextAttemptAt', (q) =>
+						q.eq('state', state).lte('nextAttemptAt', args.now)
+					)
+					.order('asc')
+					.take(ANIME_SYNC_QUEUE_CLAIM_SCAN_LIMIT_PER_STATE);
 		for (const row of rows) {
-			if (args.jobType && row.jobType !== args.jobType) continue;
 			const candidate = row as AnimeSyncQueueRow;
 			if (isBetterQueueCandidate(candidate, picked)) picked = candidate;
 		}
@@ -402,11 +422,19 @@ async function pruneAnimeSyncQueueHandler(ctx: MutationCtx, args: { now: number;
 	let deleted = 0;
 	for (const state of PRUNABLE_QUEUE_STATES) {
 		if (deleted >= limit) break;
+		const remaining = limit - deleted;
+		const scanLimit = Math.max(
+			ANIME_SYNC_QUEUE_SCAN_LIMIT_MIN,
+			Math.min(
+				ANIME_SYNC_QUEUE_SCAN_LIMIT_MAX,
+				remaining * ANIME_SYNC_QUEUE_PRUNE_SCAN_LIMIT_MULTIPLIER
+			)
+		);
 		const rows = await ctx.db
 			.query('animeSyncQueue')
 			.withIndex('by_state_nextAttemptAt', (q) => q.eq('state', state).lte('nextAttemptAt', cutoff))
 			.order('asc')
-			.collect();
+			.take(scanLimit);
 		for (const row of rows) {
 			if (deleted >= limit) break;
 			if ((row.lastRequestedAt ?? 0) > cutoff) continue;

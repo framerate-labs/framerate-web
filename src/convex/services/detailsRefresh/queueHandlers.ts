@@ -229,15 +229,22 @@ export async function claimNextDetailRefreshQueueJobHandler(
 	args: { now: number; mediaType?: 'movie' | 'tv' }
 ) {
 	const candidates: Array<Doc<'detailRefreshQueue'>> = [];
+	const mediaType = args.mediaType ?? null;
 	for (const state of ['queued', 'retry'] as const) {
-		const rows = await ctx.db
-			.query('detailRefreshQueue')
-			.withIndex('by_state_nextAttemptAt', (q) =>
-				q.eq('state', state).lte('nextAttemptAt', args.now)
-			)
-			.take(50);
+		const rows = mediaType
+			? await ctx.db
+					.query('detailRefreshQueue')
+					.withIndex('by_state_mediaType_nextAttemptAt', (q) =>
+						q.eq('state', state).eq('mediaType', mediaType).lte('nextAttemptAt', args.now)
+					)
+					.take(50)
+			: await ctx.db
+					.query('detailRefreshQueue')
+					.withIndex('by_state_nextAttemptAt', (q) =>
+						q.eq('state', state).lte('nextAttemptAt', args.now)
+					)
+					.take(50);
 		for (const row of rows) {
-			if (args.mediaType && row.mediaType !== args.mediaType) continue;
 			candidates.push(row);
 		}
 	}

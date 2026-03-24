@@ -68,6 +68,16 @@ const storedEpisodeSummaryValidator = v.object({
 	seasonNumber: v.number(),
 	episodeNumber: v.number()
 });
+const storedCachedEpisodeValidator = v.object({
+	id: v.number(),
+	name: v.string(),
+	overview: v.union(v.string(), v.null()),
+	airDate: v.union(v.string(), v.null()),
+	runtime: v.union(v.number(), v.null()),
+	episodeNumber: v.number(),
+	seasonNumber: v.number(),
+	stillPath: v.union(v.string(), v.null())
+});
 const storedTVSeasonSummaryValidator = v.object({
 	id: v.number(),
 	name: v.string(),
@@ -267,7 +277,7 @@ export default defineSchema({
 		// Used for queue/dashboard listing in reverse recency without full table scans.
 		.index('by_state_lastRequestedAt', ['state', 'lastRequestedAt'])
 		.index('by_nextRefreshAt', ['nextRefreshAt'])
-		.index('by_mediaType_nextAttemptAt', ['mediaType', 'nextAttemptAt']),
+		.index('by_state_mediaType_nextAttemptAt', ['state', 'mediaType', 'nextAttemptAt']),
 
 	// =====================================================================
 	// Transient anime leases used to dedupe title sync jobs and table seeding sweeps.
@@ -328,7 +338,7 @@ export default defineSchema({
 		.index('by_syncKey', ['syncKey'])
 		.index('by_state_nextAttemptAt', ['state', 'nextAttemptAt'])
 		.index('by_nextRefreshAt', ['nextRefreshAt'])
-		.index('by_jobType_nextAttemptAt', ['jobType', 'nextAttemptAt']),
+		.index('by_state_jobType_nextAttemptAt', ['state', 'jobType', 'nextAttemptAt']),
 
 	// =====================================================================
 	// Shared AniList API quota budget state (global token bucket + backoff).
@@ -380,7 +390,6 @@ export default defineSchema({
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
 		.index('by_imdbId', ['imdbId'])
-		.index('by_isAnime_tmdbId', ['isAnime', 'tmdbId'])
 		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
 	// =====================================================================
@@ -412,7 +421,6 @@ export default defineSchema({
 		.index('by_tmdbId', ['tmdbId'])
 		.index('by_traktId', ['traktId'])
 		.index('by_imdbId', ['imdbId'])
-		.index('by_isAnime_tmdbId', ['isAnime', 'tmdbId'])
 		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
 	// =====================================================================
@@ -487,7 +495,7 @@ export default defineSchema({
 		updatedAt: v.number()
 	})
 		.index('by_tmdbId', ['tmdbId'])
-		.index('by_updatedAt', ['updatedAt']),
+		.index('by_tmdbId_updatedAt', ['tmdbId', 'updatedAt']),
 
 	// =====================================================================
 	// Manual TV overrides. These rows are never touched by refresh workers.
@@ -512,7 +520,7 @@ export default defineSchema({
 		updatedAt: v.number()
 	})
 		.index('by_tmdbId', ['tmdbId'])
-		.index('by_updatedAt', ['updatedAt']),
+		.index('by_tmdbId_updatedAt', ['tmdbId', 'updatedAt']),
 
 	// =====================================================================
 	// Anime cross reference between TMDB <-> AniList
@@ -702,8 +710,7 @@ export default defineSchema({
 		),
 		updatedAt: v.float64()
 	})
-		.index('by_tmdb', ['tmdbType', 'tmdbId'])
-		.index('by_tmdb_rowKey', ['tmdbType', 'tmdbId', 'rowKey']),
+		.index('by_tmdb', ['tmdbType', 'tmdbId']),
 
 	// =====================================================================
 	// Proactive operator alerts for anime data quality / curation attention.
@@ -733,9 +740,7 @@ export default defineSchema({
 		updatedAt: v.float64()
 	})
 		.index('by_tmdb', ['tmdbType', 'tmdbId'])
-		.index('by_fingerprint', ['fingerprint'])
-		.index('by_status_lastSeenAt', ['status', 'lastSeenAt'])
-		.index('by_code_status', ['code', 'status']),
+		.index('by_status_lastSeenAt', ['status', 'lastSeenAt']),
 
 	// Cursor state for bounded cron sweeps that materialize animeAlerts proactively.
 	animeAlertSweepState: defineTable({
@@ -751,18 +756,7 @@ export default defineSchema({
 	animeEpisodeCache: defineTable({
 		tmdbId: v.number(),
 		seasonNumber: v.number(),
-		episodes: v.array(
-			v.object({
-				id: v.number(),
-				name: v.string(),
-				overview: v.union(v.string(), v.null()),
-				airDate: v.union(v.string(), v.null()),
-				runtime: v.union(v.number(), v.null()),
-				episodeNumber: v.number(),
-				seasonNumber: v.number(),
-				stillPath: v.union(v.string(), v.null())
-			})
-		),
+		episodes: v.array(storedCachedEpisodeValidator),
 		fetchedAt: v.number(),
 		// Scheduler reads this field to decide when season cache should be refreshed.
 		nextRefreshAt: v.number()
@@ -776,18 +770,7 @@ export default defineSchema({
 	tvEpisodeCache: defineTable({
 		tmdbId: v.number(),
 		seasonNumber: v.number(),
-		episodes: v.array(
-			v.object({
-				id: v.number(),
-				name: v.string(),
-				overview: v.union(v.string(), v.null()),
-				airDate: v.union(v.string(), v.null()),
-				runtime: v.union(v.number(), v.null()),
-				episodeNumber: v.number(),
-				seasonNumber: v.number(),
-				stillPath: v.union(v.string(), v.null())
-			})
-		),
+		episodes: v.array(storedCachedEpisodeValidator),
 		fetchedAt: v.number(),
 		nextRefreshAt: v.number()
 	})
