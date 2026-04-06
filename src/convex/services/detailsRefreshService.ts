@@ -2,13 +2,11 @@ import type { ActionCtx } from '../_generated/server';
 import type { DetailRefreshConfig } from '../types/detailsRefreshTypes';
 import type {
 	CreditCoverage,
-	RefreshCandidate,
 	RefreshIfStaleArgs,
 	RefreshIfStaleResult,
 	StoredCastCredit,
 	StoredCrewCredit,
-	StoredMediaSnapshot,
-	SweepStaleDetailsResult
+	StoredMediaSnapshot
 } from '../types/detailsType';
 import type { MediaType } from '../types/mediaTypes';
 
@@ -21,7 +19,6 @@ import {
 import { clampCreditRows, coverageRank } from '../utils/details/credits';
 import { computeNextRefreshAt, toStoredEpisodeSummary } from '../utils/details/refreshPolicy';
 import {
-	createLeaseOwner,
 	ensureTMDBSource,
 	evaluateDetailRefreshDecision,
 	fetchPreparedDetailsForSync,
@@ -93,7 +90,7 @@ function normalizeCreditSeasonContext(
 	};
 }
 
-async function getCreditCoverage(
+async function getDetailRefreshSnapshot(
 	ctx: ActionCtx,
 	args: {
 		mediaType: MediaType;
@@ -102,17 +99,33 @@ async function getCreditCoverage(
 		now: number;
 		seasonContext: CreditSeasonContext | null;
 	}
-): Promise<{ coverage: CreditCoverage | null; stale: boolean }> {
-	const row = (await ctx.runQuery(internal.detailsRefresh.getCreditCacheBySource, {
+): Promise<{
+	storedMedia: StoredMediaSnapshot | null;
+	creditCoverage: { coverage: CreditCoverage | null; stale: boolean };
+}> {
+	const snapshot = (await ctx.runQuery(internal.detailsRefresh.getDetailRefreshSnapshot, {
 		mediaType: args.mediaType,
-		tmdbId: args.tmdbId,
 		source: args.source,
+		externalId: args.tmdbId,
+		creditSource: 'tmdb',
 		seasonKey: args.seasonContext?.seasonKey ?? null
-	})) as CreditCacheCoverageRow | null;
-	if (!row) return { coverage: null, stale: true };
+	})) as {
+		storedMedia: StoredMediaSnapshot | null;
+		creditCache: CreditCacheCoverageRow | null;
+	};
+	const row = snapshot.creditCache;
+	if (!row) {
+		return {
+			storedMedia: snapshot.storedMedia,
+			creditCoverage: { coverage: null, stale: true }
+		};
+	}
 	return {
-		coverage: row.coverage,
-		stale: row.nextRefreshAt <= args.now
+		storedMedia: snapshot.storedMedia,
+		creditCoverage: {
+			coverage: row.coverage,
+			stale: row.nextRefreshAt <= args.now
+		}
 	};
 }
 
@@ -158,14 +171,13 @@ function shouldRefreshDetailsForRun(args: {
 
 export {
 	computeRefreshErrorBackoffMs,
-	createDetailRefreshLeaseKey,
 	DEFAULT_DETAIL_REFRESH_CONFIG
 } from '../utils/details/refreshRuntime';
 
 export async function runRefreshIfStale(
 	ctx: ActionCtx,
 	args: RefreshIfStaleArgs,
-	config: Pick<DetailRefreshConfig, 'detailSchemaVersion' | 'leaseTtlMs' | 'expediteRecheckMs'>
+	config: Pick<DetailRefreshConfig, 'detailSchemaVersion' | 'expediteRecheckMs'>
 ): Promise<RefreshIfStaleResult> {
 	const source = mediaSourceFromArgs(args.source);
 	ensureTMDBSource(source);
@@ -178,14 +190,14 @@ export async function runRefreshIfStale(
 	const mediaType = args.mediaType as MediaType;
 
 	const now = Date.now();
-	const storedMedia: StoredMediaSnapshot | null = (await ctx.runQuery(
-		internal.detailsRefresh.getStoredMedia,
-		{
-			mediaType,
-			source,
-			externalId: args.id
-		}
-	)) as StoredMediaSnapshot | null;
+	const initialSnapshot = await getDetailRefreshSnapshot(ctx, {
+		mediaType,
+		tmdbId: args.id,
+		source: 'tmdb',
+		now,
+		seasonContext: creditSeasonContext
+	});
+	const storedMedia = initialSnapshot.storedMedia;
 
 	const decision = evaluateDetailRefreshDecision(
 		args,
@@ -199,13 +211,7 @@ export async function runRefreshIfStale(
 		creditSeasonContext,
 		skipDetailRefresh
 	});
-	const initialCreditState = await getCreditCoverage(ctx, {
-		mediaType,
-		tmdbId: args.id,
-		source: 'tmdb',
-		now,
-		seasonContext: creditSeasonContext
-	});
+	const initialCreditState = initialSnapshot.creditCoverage;
 	const initialCreditsNeedRefresh =
 		args.force === true ||
 		initialCreditState.coverage === null ||
@@ -220,43 +226,27 @@ export async function runRefreshIfStale(
 		};
 	}
 
-	const leaseOwner = createLeaseOwner(now);
-	const lease = await ctx.runMutation(internal.detailsRefresh.tryAcquireRefreshLease, {
-		mediaType,
-		source,
-		externalId: args.id,
-		now,
-		ttlMs: config.leaseTtlMs,
-		owner: leaseOwner
-	});
-
-	if (!lease.acquired || lease.leaseId === null) {
-		return {
-			refreshed: false,
-			reason: 'in-flight',
-			nextRefreshAt: storedMedia?.nextRefreshAt ?? null
-		};
-	}
-
 	try {
 		let effectiveStoredMedia = storedMedia;
 		let shouldRefreshDetails = initialShouldRefreshDetails;
+		let effectiveCreditState = initialCreditState;
 
-		// Re-check staleness after acquiring lease to avoid duplicate fetches.
+		// Re-check staleness at execution time to avoid duplicate fetches across stale UI payloads.
 		if (args.force !== true) {
-			const latestStored: StoredMediaSnapshot | null = (await ctx.runQuery(
-				internal.detailsRefresh.getStoredMedia,
-				{
-					mediaType,
-					source,
-					externalId: args.id
-				}
-			)) as StoredMediaSnapshot | null;
+			const recheckNow = Date.now();
+			const latestSnapshot = await getDetailRefreshSnapshot(ctx, {
+				mediaType,
+				tmdbId: args.id,
+				source: 'tmdb',
+				now: recheckNow,
+				seasonContext: creditSeasonContext
+			});
+			const latestStored = latestSnapshot.storedMedia;
 
 			const latestDecision = evaluateDetailRefreshDecision(
 				{ ...args, force: false },
 				latestStored,
-				Date.now(),
+				recheckNow,
 				config.detailSchemaVersion
 			);
 			const latestShouldRefreshDetails = shouldRefreshDetailsForRun({
@@ -265,15 +255,8 @@ export async function runRefreshIfStale(
 				creditSeasonContext,
 				skipDetailRefresh
 			});
+			const latestCreditState = latestSnapshot.creditCoverage;
 			if (!latestShouldRefreshDetails) {
-				const recheckNow = Date.now();
-				const latestCreditState = await getCreditCoverage(ctx, {
-					mediaType,
-					tmdbId: args.id,
-					source: 'tmdb',
-					now: recheckNow,
-					seasonContext: creditSeasonContext
-				});
 				const latestCreditsNeedRefresh =
 					latestCreditState.coverage === null ||
 					latestCreditState.stale ||
@@ -287,140 +270,139 @@ export async function runRefreshIfStale(
 				}
 			}
 
-			effectiveStoredMedia = latestStored;
-			shouldRefreshDetails = latestShouldRefreshDetails;
+		effectiveStoredMedia = latestStored;
+		shouldRefreshDetails = latestShouldRefreshDetails;
+		effectiveCreditState = latestCreditState;
+	}
+
+		let prepared = shouldRefreshDetails
+			? await fetchPreparedDetailsForSync(mediaType, args.id, {
+					includeCredits: mediaType === 'movie'
+				})
+			: null;
+		let shouldExpediteRecheck = false;
+		if (prepared !== null && desiredCoverage === 'full') {
+			const hasExistingDetailSnapshot =
+				effectiveStoredMedia !== null &&
+				effectiveStoredMedia.detailFetchedAt !== null &&
+				effectiveStoredMedia.detailFetchedAt !== undefined;
+			const shouldRetryPotentialRegression = shouldRetryDueToPotentialRegression(
+				mediaType,
+				effectiveStoredMedia,
+				prepared
+			);
+			const shouldRetrySparseInitial =
+				!hasExistingDetailSnapshot && shouldRetryDueToSparseInitialPayload(prepared);
+			if (shouldRetryPotentialRegression || shouldRetrySparseInitial) {
+				const retryPrepared = await fetchPreparedDetailsForSync(mediaType, args.id, {
+					includeCredits: mediaType === 'movie'
+				});
+				const stillPotentialRegression =
+					shouldRetryPotentialRegression &&
+					shouldRetryDueToPotentialRegression(mediaType, effectiveStoredMedia, retryPrepared);
+				const stillSparseInitial =
+					shouldRetrySparseInitial && shouldRetryDueToSparseInitialPayload(retryPrepared);
+				shouldExpediteRecheck = stillPotentialRegression || stillSparseInitial;
+				prepared = retryPrepared;
+			}
+		}
+		const refreshedAt = Date.now();
+		let nextRefreshAt = effectiveStoredMedia?.nextRefreshAt ?? null;
+		if (prepared !== null) {
+			nextRefreshAt = computeNextRefreshAt(prepared.details, refreshedAt);
+		}
+		if (shouldExpediteRecheck) {
+			nextRefreshAt = Math.min(
+				nextRefreshAt ?? refreshedAt + config.expediteRecheckMs,
+				refreshedAt + config.expediteRecheckMs
+			);
+		}
+		if (prepared !== null) {
+			const creatorCredits =
+				prepared.creatorCredits.length > 0
+					? prepared.creatorCredits
+					: sanitizeStoredCreatorCredits(effectiveStoredMedia?.creatorCredits);
+			await ctx.runMutation(internal.detailsRefresh.insertMedia, {
+				mediaType,
+				source,
+				externalId: args.id,
+				title: prepared.details.title,
+				posterPath: prepared.details.posterPath,
+				backdropPath: prepared.details.backdropPath,
+				releaseDate: prepared.details.releaseDate,
+				overview: prepared.details.overview,
+				status: prepared.details.status,
+				runtime: prepared.details.mediaType === 'movie' ? prepared.details.runtime : null,
+				numberOfSeasons:
+					prepared.details.mediaType === 'tv' ? prepared.details.numberOfSeasons : undefined,
+				seasons: prepared.details.mediaType === 'tv' ? prepared.details.seasons : undefined,
+				lastAirDate: prepared.details.mediaType === 'tv' ? prepared.details.lastAirDate : null,
+				lastEpisodeToAir:
+					prepared.details.mediaType === 'tv'
+						? toStoredEpisodeSummary(prepared.details.lastEpisodeToAir)
+						: undefined,
+				nextEpisodeToAir:
+					prepared.details.mediaType === 'tv'
+						? toStoredEpisodeSummary(prepared.details.nextEpisodeToAir)
+						: undefined,
+				detailSchemaVersion: config.detailSchemaVersion,
+				detailFetchedAt: refreshedAt,
+				nextRefreshAt: nextRefreshAt ?? refreshedAt,
+				isAnime: prepared.isAnime,
+				isAnimeSource: 'auto',
+				creatorCredits
+			});
 		}
 
-			let prepared = shouldRefreshDetails
-				? await fetchPreparedDetailsForSync(mediaType, args.id, {
-						includeCredits: mediaType === 'movie'
-					})
-				: null;
-			let shouldExpediteRecheck = false;
-			if (prepared !== null && desiredCoverage === 'full') {
-				const hasExistingDetailSnapshot =
-					effectiveStoredMedia !== null &&
-					effectiveStoredMedia.detailFetchedAt !== null &&
-					effectiveStoredMedia.detailFetchedAt !== undefined;
-				const shouldRetryPotentialRegression = shouldRetryDueToPotentialRegression(
-					mediaType,
-					effectiveStoredMedia,
-					prepared
-				);
-				const shouldRetrySparseInitial =
-					!hasExistingDetailSnapshot && shouldRetryDueToSparseInitialPayload(prepared);
-				if (shouldRetryPotentialRegression || shouldRetrySparseInitial) {
-					const retryPrepared = await fetchPreparedDetailsForSync(mediaType, args.id, {
-						includeCredits: mediaType === 'movie'
-					});
-					const stillPotentialRegression =
-						shouldRetryPotentialRegression &&
-						shouldRetryDueToPotentialRegression(mediaType, effectiveStoredMedia, retryPrepared);
-					const stillSparseInitial =
-						shouldRetrySparseInitial && shouldRetryDueToSparseInitialPayload(retryPrepared);
-					shouldExpediteRecheck = stillPotentialRegression || stillSparseInitial;
-					prepared = retryPrepared;
-				}
-			}
-			const refreshedAt = Date.now();
-			let nextRefreshAt = effectiveStoredMedia?.nextRefreshAt ?? null;
-			if (prepared !== null) {
-				nextRefreshAt = computeNextRefreshAt(prepared.details, refreshedAt);
-			}
-			if (shouldExpediteRecheck) {
-				nextRefreshAt = Math.min(
-					nextRefreshAt ?? refreshedAt + config.expediteRecheckMs,
-					refreshedAt + config.expediteRecheckMs
-				);
-			}
-			if (prepared !== null) {
-				const creatorCredits =
-					prepared.creatorCredits.length > 0
-						? prepared.creatorCredits
-						: sanitizeStoredCreatorCredits(effectiveStoredMedia?.creatorCredits);
-				await ctx.runMutation(internal.detailsRefresh.insertMedia, {
-					mediaType,
-					source,
-					externalId: args.id,
-					title: prepared.details.title,
-					posterPath: prepared.details.posterPath,
-					backdropPath: prepared.details.backdropPath,
-					releaseDate: prepared.details.releaseDate,
-					overview: prepared.details.overview,
-					status: prepared.details.status,
-					runtime: prepared.details.mediaType === 'movie' ? prepared.details.runtime : null,
-					numberOfSeasons:
-						prepared.details.mediaType === 'tv' ? prepared.details.numberOfSeasons : undefined,
-					seasons: prepared.details.mediaType === 'tv' ? prepared.details.seasons : undefined,
-					lastAirDate: prepared.details.mediaType === 'tv' ? prepared.details.lastAirDate : null,
-					lastEpisodeToAir:
-						prepared.details.mediaType === 'tv'
-							? toStoredEpisodeSummary(prepared.details.lastEpisodeToAir)
-							: undefined,
-					nextEpisodeToAir:
-						prepared.details.mediaType === 'tv'
-							? toStoredEpisodeSummary(prepared.details.nextEpisodeToAir)
-							: undefined,
-					detailSchemaVersion: config.detailSchemaVersion,
-					detailFetchedAt: refreshedAt,
-					nextRefreshAt: nextRefreshAt ?? refreshedAt,
-					isAnime: prepared.isAnime,
-					isAnimeSource: 'auto',
-					creatorCredits
-				});
-			}
+		const creditsNeedRefresh =
+			args.force === true ||
+			effectiveCreditState.coverage === null ||
+			effectiveCreditState.stale ||
+			coverageRank(effectiveCreditState.coverage) < coverageRank(desiredCoverage);
 
-			const creditNow = Date.now();
-			const currentCreditState = await getCreditCoverage(ctx, {
+		let didRefreshCredits = false;
+		if (creditsNeedRefresh) {
+			const effectiveIsAnime =
+				prepared?.isAnime ??
+				(typeof effectiveStoredMedia?.isAnime === 'boolean' ? effectiveStoredMedia.isAnime : null);
+			const effectiveCreatorCredits =
+				prepared?.creatorCredits ??
+				(typeof effectiveStoredMedia?.creatorCredits !== 'undefined'
+					? effectiveStoredMedia.creatorCredits
+					: undefined);
+			const creditSnapshot = await fetchCreditSnapshot({
 				mediaType,
 				tmdbId: args.id,
-				source: 'tmdb',
-				now: creditNow,
-				seasonContext: creditSeasonContext
+				desiredCoverage,
+				seasonContext: creditSeasonContext,
+				isAnime: effectiveIsAnime,
+				tvCreatorSeeds: collectTVCreatorSeeds(effectiveCreatorCredits)
 			});
-			const creditsNeedRefresh =
-				args.force === true ||
-				currentCreditState.coverage === null ||
-				currentCreditState.stale ||
-				coverageRank(currentCreditState.coverage) < coverageRank(desiredCoverage);
+			await ctx.runMutation(internal.detailsRefresh.upsertCreditCache, {
+				mediaType,
+				tmdbId: args.id,
+				source: creditSnapshot.source,
+				seasonKey: creditSeasonContext?.seasonKey ?? null,
+				coverage: creditSnapshot.coverage,
+				castCredits: creditSnapshot.castCredits,
+				crewCredits: creditSnapshot.crewCredits,
+				castTotal: creditSnapshot.castTotal,
+				crewTotal: creditSnapshot.crewTotal,
+				fetchedAt: refreshedAt,
+				nextRefreshAt: nextCreditRefreshAt(refreshedAt, creditSnapshot.coverage)
+			});
+			didRefreshCredits = true;
+		}
 
-			let didRefreshCredits = false;
-			if (creditsNeedRefresh) {
-				const effectiveIsAnime =
-					prepared?.isAnime ??
-					(typeof effectiveStoredMedia?.isAnime === 'boolean' ? effectiveStoredMedia.isAnime : null);
-				const effectiveCreatorCredits =
-					prepared?.creatorCredits ??
-					(typeof effectiveStoredMedia?.creatorCredits !== 'undefined'
-						? effectiveStoredMedia.creatorCredits
-						: undefined);
-				const creditSnapshot = await fetchCreditSnapshot({
-					mediaType,
-					tmdbId: args.id,
-					desiredCoverage,
-					seasonContext: creditSeasonContext,
-					isAnime: effectiveIsAnime,
-					tvCreatorSeeds: collectTVCreatorSeeds(effectiveCreatorCredits)
-				});
-				await ctx.runMutation(internal.detailsRefresh.upsertCreditCache, {
-					mediaType,
-					tmdbId: args.id,
-					source: creditSnapshot.source,
-					seasonKey: creditSeasonContext?.seasonKey ?? null,
-					coverage: creditSnapshot.coverage,
-					castCredits: creditSnapshot.castCredits,
-					crewCredits: creditSnapshot.crewCredits,
-					castTotal: creditSnapshot.castTotal,
-					crewTotal: creditSnapshot.crewTotal,
-					fetchedAt: refreshedAt,
-					nextRefreshAt: nextCreditRefreshAt(refreshedAt, creditSnapshot.coverage)
-				});
-				didRefreshCredits = true;
-			}
-
+		let resultReason: RefreshIfStaleResult['reason'] = 'fresh';
+		if (shouldRefreshDetails) {
+			resultReason = decision.reason;
+		} else if (didRefreshCredits) {
+			resultReason = 'credits-refreshed';
+		}
 		return {
 			refreshed: shouldRefreshDetails || didRefreshCredits,
-			reason: shouldRefreshDetails ? decision.reason : didRefreshCredits ? 'credits-refreshed' : 'fresh',
+			reason: resultReason,
 			nextRefreshAt: nextRefreshAt ?? null
 		};
 	} catch (error) {
@@ -431,75 +413,5 @@ export async function runRefreshIfStale(
 			failedAt: Date.now()
 		});
 		throw error;
-	} finally {
-		await ctx.runMutation(internal.detailsRefresh.releaseRefreshLease, {
-			leaseId: lease.leaseId,
-			owner: leaseOwner
-		});
 	}
-}
-
-export async function runSweepStaleDetails(
-	ctx: ActionCtx,
-	config: DetailRefreshConfig
-): Promise<SweepStaleDetailsResult> {
-	const now = Date.now();
-
-	await ctx.runMutation(internal.detailsRefresh.pruneExpiredRefreshLeases, {
-		now,
-		limit: config.pruneLimit
-	});
-
-	const candidates = (await ctx.runQuery(internal.detailsRefresh.listStaleRefreshCandidates, {
-		now,
-		limitPerType: config.scanPerType
-	})) as RefreshCandidate[];
-
-	const selected = candidates.slice(0, config.maxRefreshes);
-	let refreshed = 0;
-	let skipped = 0;
-	let failed = 0;
-
-	for (let index = 0; index < selected.length; index += config.batchSize) {
-		const batch = selected.slice(index, index + config.batchSize);
-		const batchResults = await Promise.all(
-			batch.map(async (candidate: RefreshCandidate) => {
-				try {
-					return await runRefreshIfStale(
-						ctx,
-						{
-							mediaType: candidate.mediaType,
-							id: candidate.id,
-							source: 'tmdb',
-							force: false,
-							creditCoverageTarget: 'full'
-						},
-						config
-					);
-				} catch {
-					return null;
-				}
-			})
-		);
-
-		for (const result of batchResults) {
-			if (result === null) {
-				failed += 1;
-				continue;
-			}
-			if (result.refreshed) {
-				refreshed += 1;
-			} else {
-				skipped += 1;
-			}
-		}
-	}
-
-	return {
-		scanned: candidates.length,
-		selected: selected.length,
-		refreshed,
-		skipped,
-		failed
-	};
 }

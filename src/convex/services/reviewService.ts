@@ -9,8 +9,16 @@ import type {
 } from '../types/reviewTypes';
 import type { MediaSource } from '../utils/mediaLookup';
 
-import { api } from '../_generated/api';
+import { internal } from '../_generated/api';
 import { getMovieBySource, getTVShowBySource } from '../utils/mediaLookup';
+import {
+	ensureDetailRefreshQueueRow,
+	requestDetailRefreshQueueRow
+} from './detailsRefresh/queueState';
+import {
+	DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY
+} from './detailsRefresh/constants';
+const DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS = 20 * 60_000;
 
 type HydratableMedia = {
 	detailSchemaVersion?: number | null;
@@ -127,6 +135,15 @@ export async function ensureMediaRecord(
 	if (args.mediaType === 'movie') {
 		const movie = await getMovieBySource(ctx, args.source, args.externalId);
 		if (movie) {
+			if (args.source === 'tmdb' && typeof args.externalId === 'number') {
+				await ensureDetailRefreshQueueRow(ctx, {
+					mediaType: 'movie',
+					source: 'tmdb',
+					externalId: args.externalId,
+					now: args.now,
+					initialNextRefreshAt: movie.nextRefreshAt ?? args.now
+				});
+			}
 			return {
 				mediaType: 'movie',
 				mediaId: movie._id,
@@ -144,11 +161,29 @@ export async function ensureMediaRecord(
 				now: args.now
 			})
 		);
+		if (args.source === 'tmdb' && typeof args.externalId === 'number') {
+			await ensureDetailRefreshQueueRow(ctx, {
+				mediaType: 'movie',
+				source: 'tmdb',
+				externalId: args.externalId,
+				now: args.now,
+				initialNextRefreshAt: args.now
+			});
+		}
 		return { mediaType: 'movie', mediaId, shouldHydrateDetails: true };
 	}
 
 	const tvShow = await getTVShowBySource(ctx, args.source, args.externalId);
 	if (tvShow) {
+		if (args.source === 'tmdb' && typeof args.externalId === 'number') {
+			await ensureDetailRefreshQueueRow(ctx, {
+				mediaType: 'tv',
+				source: 'tmdb',
+				externalId: args.externalId,
+				now: args.now,
+				initialNextRefreshAt: tvShow.nextRefreshAt ?? args.now
+			});
+		}
 		return {
 			mediaType: 'tv',
 			mediaId: tvShow._id,
@@ -166,6 +201,15 @@ export async function ensureMediaRecord(
 			now: args.now
 		})
 	);
+	if (args.source === 'tmdb' && typeof args.externalId === 'number') {
+		await ensureDetailRefreshQueueRow(ctx, {
+			mediaType: 'tv',
+			source: 'tmdb',
+			externalId: args.externalId,
+			now: args.now,
+			initialNextRefreshAt: args.now
+		});
+	}
 	return { mediaType: 'tv', mediaId, shouldHydrateDetails: true };
 }
 
@@ -178,12 +222,21 @@ export async function scheduleDetailHydrationForTMDB(
 	if (source !== 'tmdb' || typeof externalId !== 'number') return;
 
 	try {
-		await ctx.scheduler.runAfter(0, api.detailsRefresh.refreshIfStale, {
+		const now = Date.now();
+		const request = await requestDetailRefreshQueueRow(ctx, {
 			mediaType,
-			id: externalId,
 			source: 'tmdb',
-			force: true
+			externalId,
+			now,
+			priority: DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY,
+			force: true,
+			staleRunningAfterMs: DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS
 		});
+		if (request.queued) {
+			await ctx.scheduler.runAfter(0, internal.detailsRefresh.processDetailRefreshQueue, {
+				maxJobs: 3
+			});
+		}
 	} catch {
 		// Best effort only; review writes should not fail if hydration scheduling fails.
 	}

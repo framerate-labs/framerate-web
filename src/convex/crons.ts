@@ -6,9 +6,8 @@ const crons = cronJobs();
 
 // Keep cadence/limit knobs centralized so queue pressure can be tuned without
 // touching each schedule callsite.
-const DETAIL_ENQUEUE_LIMIT = 200;
-const DETAIL_ENQUEUE_LIMIT_PER_TYPE = 150;
 const DETAIL_PROCESS_MAX_JOBS = 20;
+const DETAIL_QUEUE_MAINTENANCE_PAGE_SIZE = 250;
 const ANIME_ENQUEUE_STALE_LIMIT = 100;
 const ANIME_SEED_LIMIT = 200;
 const ANIME_PROCESS_MAX_JOBS = 4;
@@ -30,20 +29,10 @@ crons.interval(
 	internal.entities.cleanupEntityPageCacheArtifacts
 );
 
-// Seed stale media rows into the persistent detail refresh queue.
-// Solves: proactive recency maintenance while allowing queue-level retries/visibility.
-crons.interval(
-	'enqueue stale detail refreshes',
-	{ minutes: 30 },
-	internal.detailsRefresh.enqueueStaleDetailRefreshes,
-	{
-		limit: DETAIL_ENQUEUE_LIMIT,
-		limitPerType: DETAIL_ENQUEUE_LIMIT_PER_TYPE
-	}
-);
-
 // Process the persistent detail refresh queue in bounded batches.
 // Solves: controlled TMDB fanout with retry/backoff and durable job state.
+// Queue rows are kept authoritative by insertion paths and refresh outcome writes,
+// so the worker can claim due idle rows directly without rescanning media tables.
 crons.interval(
 	'process detail refresh queue',
 	{ minutes: 5 },
@@ -51,6 +40,25 @@ crons.interval(
 	{
 		maxJobs: DETAIL_PROCESS_MAX_JOBS
 	}
+);
+
+// Backfill missing queue rows for TMDB titles inserted or edited outside the normal write path.
+// This is a slow-moving integrity sweep, not a stale-work discovery pass.
+crons.interval(
+	'backfill detail refresh queue coverage',
+	{ hours: 24 },
+	internal.detailsRefresh.backfillMissingDetailRefreshQueueRows,
+	{
+		pageSize: DETAIL_QUEUE_MAINTENANCE_PAGE_SIZE
+	}
+);
+
+// Repair duplicate or malformed detail refresh artifacts before they can violate unique-read assumptions.
+// Runs infrequently so steady-state refresh traffic is not paying this cost.
+crons.interval(
+	'repair detail refresh artifacts',
+	{ hours: 24 },
+	internal.detailsRefresh.repairDetailRefreshArtifacts
 );
 
 // Re-queue anime season sync rows whose anime-specific nextRefreshAt has expired.

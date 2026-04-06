@@ -20,17 +20,8 @@ const MAX_REFRESH_BACKOFF_MS = DAY_MS;
 const BASE_REFRESH_BACKOFF_MS = 15 * MINUTE_MS;
 
 export const DEFAULT_DETAIL_REFRESH_CONFIG: Omit<DetailRefreshConfig, 'detailSchemaVersion'> = {
-	leaseTtlMs: 90_000,
-	pruneLimit: 200,
-	scanPerType: 150,
-	maxRefreshes: 36,
-	batchSize: 6,
 	expediteRecheckMs: HOUR_MS
 } as const;
-
-export function createLeaseOwner(now: number): string {
-	return `${now}:${Math.random().toString(36).slice(2, 10)}`;
-}
 
 export async function fetchPreparedDetailsForSync(
 	mediaType: MediaType,
@@ -48,14 +39,6 @@ export async function fetchPreparedDetailsForSync(
 		isAnime,
 		creatorCredits
 	};
-}
-
-export function createDetailRefreshLeaseKey(
-	mediaType: MediaType,
-	source: MediaSource,
-	externalId: number
-): string {
-	return `${source}:${mediaType}:${externalId}`;
 }
 
 export function computeRefreshErrorBackoffMs(errorCount: number): number {
@@ -83,10 +66,8 @@ export function evaluateDetailRefreshDecision(
 
 export type DetailRefreshRuntimeConfig = Pick<
 	DetailRefreshConfig,
-	'detailSchemaVersion' | 'leaseTtlMs' | 'expediteRecheckMs'
+	'detailSchemaVersion' | 'expediteRecheckMs'
 >;
-
-export type DetailRefreshSweepConfig = DetailRefreshConfig;
 
 export function mediaSourceFromArgs(source: string | undefined): MediaSource {
 	return (source ?? 'tmdb') as MediaSource;

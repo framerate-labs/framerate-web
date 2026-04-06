@@ -163,27 +163,6 @@ function pickLatestByUpdatedAt<T extends { updatedAt: number; _creationTime: num
 	return latest;
 }
 
-function pickLatestByFetchedAt<T extends { fetchedAt: number; _creationTime: number }>(
-	rows: T[]
-): T | null {
-	if (rows.length === 0) return null;
-	let latest = rows[0] ?? null;
-	for (const row of rows) {
-		if (latest == null) {
-			latest = row;
-			continue;
-		}
-		if (row.fetchedAt > latest.fetchedAt) {
-			latest = row;
-			continue;
-		}
-		if (row.fetchedAt === latest.fetchedAt && row._creationTime > latest._creationTime) {
-			latest = row;
-		}
-	}
-	return latest;
-}
-
 function normalizeSeasonKey(seasonKey: string | null | undefined): string | null {
 	const trimmed = seasonKey?.trim() ?? '';
 	return trimmed.length > 0 ? trimmed : null;
@@ -242,7 +221,7 @@ async function resolveCanonicalCreditCacheRow(
 	}
 ) {
 	const requestedSeasonKey = normalizeSeasonKey(args.seasonKey);
-	const rows = await ctx.db
+	return await ctx.db
 		.query('creditCache')
 		.withIndex('by_mediaType_tmdbId_source_seasonKey', (q) =>
 			q
@@ -251,8 +230,7 @@ async function resolveCanonicalCreditCacheRow(
 				.eq('source', args.source)
 				.eq('seasonKey', requestedSeasonKey)
 		)
-		.collect();
-	return pickLatestByFetchedAt(rows);
+		.unique();
 }
 
 async function resolveMediaOverrideMapForKeys(

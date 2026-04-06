@@ -1,115 +1,64 @@
 import type { Doc } from '../../_generated/dataModel';
-import type { ActionCtx, MutationCtx, QueryCtx } from '../../_generated/server';
-import type { RefreshCandidate } from '../../types/detailsType';
+import type { MutationCtx, QueryCtx } from '../../_generated/server';
 
-import { internal } from '../../_generated/api';
-import {
-	computeRefreshErrorBackoffMs,
-	createDetailRefreshLeaseKey
-} from '../detailsRefreshService';
+import { computeRefreshErrorBackoffMs } from '../detailsRefreshService';
 import {
 	DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY,
 	DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS
 } from './constants';
-import { isQueueUpsertResult, toRefreshCandidates } from './resultParsers';
+import {
+	ensureDetailRefreshQueueRow,
+	isStaleRunningDetailQueueRow,
+	requestDetailRefreshQueueRow
+} from './queueState';
 const DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS = 20 * 60_000;
+const DETAIL_REFRESH_QUEUE_DUE_SCAN_LIMIT = 50;
+const DETAIL_REFRESH_QUEUE_RECENT_PRIORITY_SCAN_LIMIT = 25;
 
-function detailRefreshQueueKey(
-	mediaType: 'movie' | 'tv',
-	source: 'tmdb' | 'trakt' | 'imdb',
-	externalId: number
-): string {
-	return `${source}:${mediaType}:${externalId}`;
-}
-
-function isStaleRunningDetailQueueRow(
-	row: Pick<Doc<'detailRefreshQueue'>, 'state' | 'lastStartedAt' | 'lastRequestedAt'>,
-	now: number
-): boolean {
-	if (row.state !== 'running') return false;
-	const startedAt = row.lastStartedAt ?? row.lastRequestedAt ?? 0;
-	return startedAt > 0 && startedAt + DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS <= now;
-}
-
-export async function tryAcquireRefreshLeaseHandler(
-	ctx: MutationCtx,
+function buildDetailRefreshQueueOutcomePatch(
+	row: Doc<'detailRefreshQueue'>,
 	args: {
-		mediaType: 'movie' | 'tv';
-		source: 'tmdb' | 'trakt' | 'imdb';
-		externalId: number;
 		now: number;
-		ttlMs: number;
-		owner: string;
+		outcome: 'success' | 'retry' | 'error';
+		nextAttemptAt?: number;
+		nextRefreshAt?: number;
+		lastError?: string;
+		lastResultStatus?: string;
 	}
-) {
-	const refreshKey = createDetailRefreshLeaseKey(args.mediaType, args.source, args.externalId);
-	const existing = await ctx.db
-		.query('detailRefreshLeases')
-		.withIndex('by_refreshKey', (q) => q.eq('refreshKey', refreshKey))
-		.collect();
-	const [activeLease, ...duplicateLeases] = existing;
-	for (const duplicateLease of duplicateLeases) {
-		await ctx.db.delete(duplicateLease._id);
-	}
-	const leaseExpiresAt = args.now + args.ttlMs;
-
-	if (!activeLease) {
-		const leaseId = await ctx.db.insert('detailRefreshLeases', {
-			refreshKey,
-			mediaType: args.mediaType,
-			source: args.source,
-			externalId: args.externalId,
-			owner: args.owner,
-			leasedAt: args.now,
-			leaseExpiresAt
-		});
-		return { acquired: true, leaseId, leaseExpiresAt };
-	}
-
-	if (activeLease.leaseExpiresAt <= args.now) {
-		await ctx.db.patch(activeLease._id, {
-			owner: args.owner,
-			leasedAt: args.now,
-			leaseExpiresAt
-		});
-		return {
-			acquired: true,
-			leaseId: activeLease._id,
-			leaseExpiresAt
-		};
-	}
-
-	return {
-		acquired: false,
-		leaseId: null,
-		leaseExpiresAt: activeLease.leaseExpiresAt
+): Partial<Doc<'detailRefreshQueue'>> {
+	const patch: Partial<Doc<'detailRefreshQueue'>> = {
+		lastFinishedAt: args.now,
+		lastResultStatus: args.lastResultStatus
 	};
-}
 
-export async function releaseRefreshLeaseHandler(
-	ctx: MutationCtx,
-	args: { leaseId: Doc<'detailRefreshLeases'>['_id']; owner: string }
-) {
-	const lease = await ctx.db.get(args.leaseId);
-	if (!lease) return;
-	if (lease.owner !== args.owner) return;
-	await ctx.db.delete(args.leaseId);
-}
-
-export async function pruneExpiredRefreshLeasesHandler(
-	ctx: MutationCtx,
-	args: { now: number; limit: number }
-) {
-	const expired = await ctx.db
-		.query('detailRefreshLeases')
-		.withIndex('by_leaseExpiresAt', (q) => q.lte('leaseExpiresAt', args.now))
-		.take(args.limit);
-
-	for (const lease of expired) {
-		await ctx.db.delete(lease._id);
+	if (args.outcome === 'success') {
+		const nextRefreshAt =
+			args.nextRefreshAt ??
+			row.nextRefreshAt ??
+			args.now + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS;
+		patch.state = 'idle';
+		patch.priority = DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY;
+		patch.lastSuccessAt = args.now;
+		patch.nextRefreshAt = nextRefreshAt;
+		patch.nextAttemptAt = nextRefreshAt;
+		patch.attemptCount = 0;
+		patch.forceRefresh = false;
+		patch.lastError = undefined;
+		return patch;
 	}
 
-	return { pruned: expired.length };
+	if (args.outcome === 'retry') {
+		patch.state = 'retry';
+		patch.nextAttemptAt = args.nextAttemptAt ?? args.now + 60_000;
+		patch.lastError = args.lastError;
+		return patch;
+	}
+
+	patch.state = 'error';
+	patch.nextAttemptAt =
+		args.nextAttemptAt ?? args.now + computeRefreshErrorBackoffMs(Math.max(1, row.attemptCount ?? 1));
+	patch.lastError = args.lastError;
+	return patch;
 }
 
 export async function upsertDetailRefreshQueueRequestHandler(
@@ -123,208 +72,114 @@ export async function upsertDetailRefreshQueueRequestHandler(
 		force?: boolean;
 	}
 ) {
-	const syncKey = detailRefreshQueueKey(args.mediaType, args.source, args.externalId);
-	const rows = await ctx.db
-		.query('detailRefreshQueue')
-		.withIndex('by_syncKey', (q) => q.eq('syncKey', syncKey))
-		.collect();
-	const [existing, ...dups] = rows;
-	for (const dup of dups) await ctx.db.delete(dup._id);
-	const force = args.force === true;
-
-	if (!existing) {
-		const rowId = await ctx.db.insert('detailRefreshQueue', {
-			syncKey,
-			mediaType: args.mediaType,
-			source: args.source,
-			externalId: args.externalId,
-			state: 'queued',
-			priority: args.priority,
-			requestedAt: args.now,
-			lastRequestedAt: args.now,
-			nextAttemptAt: args.now,
-			attemptCount: 0
-		});
-		return { queued: true, inserted: true, rowId };
-	}
-	const isStaleRunning = isStaleRunningDetailQueueRow(existing, args.now);
-
-	const isStale = (existing.nextRefreshAt ?? 0) <= args.now || existing.lastSuccessAt == null;
-	const shouldQueue =
-		force ||
-		isStale ||
-		isStaleRunning ||
-		existing.state === 'error' ||
-		existing.state === 'retry' ||
-		existing.state === 'queued';
-	const nextState =
-		existing.state === 'running' && !force && !isStaleRunning
-			? 'running'
-			: shouldQueue
-				? 'queued'
-				: existing.state;
-	const nextPriority = Math.max(existing.priority, args.priority);
-	const nextAttemptAt =
-		nextState === 'queued'
-			? Math.min(existing.nextAttemptAt ?? args.now, args.now)
-			: existing.nextAttemptAt;
-	const nextLastError = nextState === 'queued' ? undefined : existing.lastError;
-	const needsPatch =
-		nextPriority !== existing.priority ||
-		(existing.lastRequestedAt ?? 0) !== args.now ||
-		nextAttemptAt !== existing.nextAttemptAt ||
-		nextState !== existing.state ||
-		nextLastError !== existing.lastError;
-	if (!needsPatch) {
-		return { queued: nextState === 'queued', inserted: false, rowId: existing._id };
-	}
-	await ctx.db.patch(existing._id, {
-		priority: nextPriority,
-		lastRequestedAt: args.now,
-		nextAttemptAt,
-		state: nextState,
-		lastError: nextLastError
-	});
-	return { queued: nextState === 'queued', inserted: false, rowId: existing._id };
-}
-
-export async function enqueueStaleDetailRefreshQueueJobsHandler(
-	ctx: ActionCtx,
-	args: { now: number; limit?: number; limitPerType?: number; priority?: number }
-) {
-	const limit = Math.max(1, Math.min(args.limit ?? 200, 1000));
-	const limitPerType = Math.max(10, Math.min(args.limitPerType ?? 200, 500));
-	const priority = args.priority ?? DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY;
-	const candidates = await ctx.runQuery(internal.detailsRefresh.listStaleRefreshCandidates, {
+	return await requestDetailRefreshQueueRow(ctx, {
+		mediaType: args.mediaType,
+		source: args.source,
+		externalId: args.externalId,
 		now: args.now,
-		limitPerType
+		priority: args.priority,
+		force: args.force,
+		staleRunningAfterMs: DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS
 	});
-	const selected = toRefreshCandidates(candidates).slice(0, limit);
-	const scanned = selected.length;
-	const deduped: RefreshCandidate[] = [];
-	const seenKeys = new Set<string>();
-	for (const candidate of selected) {
-		const key = detailRefreshQueueKey(candidate.mediaType, 'tmdb', candidate.id);
-		if (seenKeys.has(key)) continue;
-		seenKeys.add(key);
-		deduped.push(candidate);
-	}
-	let queued = 0;
-	for (const candidate of deduped) {
-		const outcome = await ctx.runMutation(internal.detailsRefresh.upsertDetailRefreshQueueRequest, {
-			mediaType: candidate.mediaType,
-			source: 'tmdb',
-			externalId: candidate.id,
-			priority,
-			now: args.now,
-			force: false
-		});
-		if (isQueueUpsertResult(outcome) && outcome.queued) queued += 1;
-	}
-	return { scanned, queued };
 }
 
 export async function claimNextDetailRefreshQueueJobHandler(
 	ctx: MutationCtx,
 	args: { now: number; mediaType?: 'movie' | 'tv' }
 ) {
-	const candidates: Array<Doc<'detailRefreshQueue'>> = [];
+	function compareQueueCandidates(
+		left: Doc<'detailRefreshQueue'>,
+		right: Doc<'detailRefreshQueue'>
+	): number {
+		const byPriority = right.priority - left.priority;
+		if (byPriority !== 0) return byPriority;
+
+		const leftAttemptAt = left.nextAttemptAt ?? 0;
+		const rightAttemptAt = right.nextAttemptAt ?? 0;
+		if (leftAttemptAt !== rightAttemptAt) {
+			return leftAttemptAt - rightAttemptAt;
+		}
+
+		const leftRequestedAt = left.requestedAt ?? 0;
+		const rightRequestedAt = right.requestedAt ?? 0;
+		if (leftRequestedAt !== rightRequestedAt) {
+			return leftRequestedAt - rightRequestedAt;
+		}
+
+		return left._creationTime - right._creationTime;
+	}
+
+	const candidates = new Map<Doc<'detailRefreshQueue'>['_id'], Doc<'detailRefreshQueue'>>();
 	const mediaType = args.mediaType ?? null;
-	for (const state of ['queued', 'retry'] as const) {
+	for (const state of ['queued', 'retry', 'idle'] as const) {
 		const rows = mediaType
 			? await ctx.db
 					.query('detailRefreshQueue')
 					.withIndex('by_state_mediaType_nextAttemptAt', (q) =>
 						q.eq('state', state).eq('mediaType', mediaType).lte('nextAttemptAt', args.now)
 					)
-					.take(50)
+					.take(DETAIL_REFRESH_QUEUE_DUE_SCAN_LIMIT)
 			: await ctx.db
 					.query('detailRefreshQueue')
 					.withIndex('by_state_nextAttemptAt', (q) =>
 						q.eq('state', state).lte('nextAttemptAt', args.now)
 					)
-					.take(50);
+					.take(DETAIL_REFRESH_QUEUE_DUE_SCAN_LIMIT);
 		for (const row of rows) {
-			candidates.push(row);
+			candidates.set(row._id, row);
+		}
+		if (mediaType == null && state !== 'idle') {
+			const recentRows = await ctx.db
+				.query('detailRefreshQueue')
+				.withIndex('by_state_lastRequestedAt', (q) => q.eq('state', state))
+				.order('desc')
+				.take(DETAIL_REFRESH_QUEUE_RECENT_PRIORITY_SCAN_LIMIT);
+			for (const row of recentRows) {
+				if ((row.nextAttemptAt ?? 0) > args.now) continue;
+				candidates.set(row._id, row);
+			}
 		}
 	}
-	if (candidates.length === 0) return null;
-	let selected: Doc<'detailRefreshQueue'> | null = null;
-	for (const candidate of candidates) {
-		if (!selected) {
-			selected = candidate;
+	const orderedCandidates = [...candidates.values()];
+	if (orderedCandidates.length === 0) return null;
+	orderedCandidates.sort(compareQueueCandidates);
+
+	for (const candidate of orderedCandidates) {
+		const freshCandidate = await ctx.db.get(candidate._id);
+		if (!freshCandidate) continue;
+		if (freshCandidate.state === 'running') {
+			if (isStaleRunningDetailQueueRow(freshCandidate, args.now, DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS)) {
+				await ctx.db.patch(freshCandidate._id, {
+					state: 'queued',
+					nextAttemptAt: Math.min(freshCandidate.nextAttemptAt ?? args.now, args.now),
+					lastRequestedAt: args.now
+				});
+			}
 			continue;
 		}
-		const byPriority = candidate.priority - selected.priority;
-		if (byPriority > 0) {
-			selected = candidate;
+		if (
+			(freshCandidate.state !== 'queued' &&
+				freshCandidate.state !== 'retry' &&
+				freshCandidate.state !== 'idle') ||
+			(freshCandidate.nextAttemptAt ?? 0) > args.now
+		) {
 			continue;
 		}
-		if (byPriority < 0) continue;
-		const byAttempt = (candidate.nextAttemptAt ?? 0) - (selected.nextAttemptAt ?? 0);
-		if (byAttempt < 0) {
-			selected = candidate;
-			continue;
-		}
-		if (byAttempt > 0) continue;
-		const byRequested = (candidate.requestedAt ?? 0) - (selected.requestedAt ?? 0);
-		if (byRequested < 0) {
-			selected = candidate;
-		}
+		const nextAttemptCount = (freshCandidate.attemptCount ?? 0) + 1;
+		await ctx.db.patch(freshCandidate._id, {
+			state: 'running',
+			lastStartedAt: args.now,
+			attemptCount: nextAttemptCount,
+			lastError: undefined
+		});
+		return {
+			...freshCandidate,
+			state: 'running' as const,
+			attemptCount: nextAttemptCount
+		};
 	}
-	if (!selected) return null;
-	const selectedId = selected._id;
-	const rowsForSyncKey = await ctx.db
-		.query('detailRefreshQueue')
-		.withIndex('by_syncKey', (q) => q.eq('syncKey', selected.syncKey))
-		.collect();
-	const activeRunning = rowsForSyncKey.find(
-		(row) =>
-			row.state === 'running' &&
-			row._id !== selectedId &&
-			!isStaleRunningDetailQueueRow(row, args.now)
-	);
-	if (activeRunning) {
-		for (const row of rowsForSyncKey) {
-			if (row._id === activeRunning._id) continue;
-			await ctx.db.delete(row._id);
-		}
-		return null;
-	}
-	for (const row of rowsForSyncKey) {
-		if (row._id === selected._id) continue;
-		await ctx.db.delete(row._id);
-	}
-	const freshSelected = await ctx.db.get(selected._id);
-	if (!freshSelected) return null;
-	if (freshSelected.state === 'running') {
-		if (isStaleRunningDetailQueueRow(freshSelected, args.now)) {
-			await ctx.db.patch(freshSelected._id, {
-				state: 'queued',
-				nextAttemptAt: Math.min(freshSelected.nextAttemptAt ?? args.now, args.now),
-				lastRequestedAt: args.now
-			});
-		}
-		return null;
-	}
-	if (
-		(freshSelected.state !== 'queued' && freshSelected.state !== 'retry') ||
-		(freshSelected.nextAttemptAt ?? 0) > args.now
-	) {
-		return null;
-	}
-	const nextAttemptCount = (freshSelected.attemptCount ?? 0) + 1;
-	await ctx.db.patch(freshSelected._id, {
-		state: 'running',
-		lastStartedAt: args.now,
-		attemptCount: nextAttemptCount,
-		lastError: undefined
-	});
-	return {
-		...freshSelected,
-		state: 'running' as const,
-		attemptCount: nextAttemptCount
-	};
+
+	return null;
 }
 
 export async function finishDetailRefreshQueueJobHandler(
@@ -341,36 +196,37 @@ export async function finishDetailRefreshQueueJobHandler(
 ) {
 	const row = await ctx.db.get(args.rowId);
 	if (!row) return { ok: false };
-	const patch: Record<string, unknown> = {
-		lastFinishedAt: args.now,
-		lastResultStatus: args.lastResultStatus
-	};
-	if (args.outcome === 'success') {
-		patch.state = 'idle';
-		patch.lastSuccessAt = args.now;
-		patch.nextRefreshAt =
-			args.nextRefreshAt ??
-			row.nextRefreshAt ??
-			args.now + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS;
-		patch.nextAttemptAt =
-			args.nextRefreshAt ??
-			row.nextRefreshAt ??
-			args.now + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS;
-		patch.attemptCount = 0;
-		patch.lastError = undefined;
-	} else if (args.outcome === 'retry') {
-		patch.state = 'retry';
-		patch.nextAttemptAt = args.nextAttemptAt ?? args.now + 60_000;
-		patch.lastError = args.lastError;
-	} else {
-		patch.state = 'error';
-		patch.nextAttemptAt =
-			args.nextAttemptAt ??
-			args.now + computeRefreshErrorBackoffMs(Math.max(1, row.attemptCount ?? 1));
-		patch.lastError = args.lastError;
-	}
+	const patch = buildDetailRefreshQueueOutcomePatch(row, args);
 	await ctx.db.patch(args.rowId, patch);
 	return { ok: true };
+}
+
+export async function syncDetailRefreshQueueRowHandler(
+	ctx: MutationCtx,
+	args: {
+		mediaType: 'movie' | 'tv';
+		source: 'tmdb' | 'trakt' | 'imdb';
+		externalId: number;
+		now: number;
+		outcome: 'success' | 'retry' | 'error';
+		nextAttemptAt?: number;
+		nextRefreshAt?: number;
+		lastError?: string;
+		lastResultStatus?: string;
+	}
+) {
+	const rowId = await ensureDetailRefreshQueueRow(ctx, {
+		mediaType: args.mediaType,
+		source: args.source,
+		externalId: args.externalId,
+		now: args.now,
+		initialNextRefreshAt: args.nextRefreshAt ?? args.nextAttemptAt ?? args.now
+	});
+	const row = await ctx.db.get(rowId);
+	if (!row) return { ok: false };
+	const patch = buildDetailRefreshQueueOutcomePatch(row, args);
+	await ctx.db.patch(rowId, patch);
+	return { ok: true, rowId };
 }
 
 export async function pruneDetailRefreshQueueHandler(
@@ -484,44 +340,4 @@ export async function listDetailRefreshQueueHandler(
 		.sort((a, b) => (b.lastRequestedAt ?? 0) - (a.lastRequestedAt ?? 0))
 		.slice(0, maxItems);
 	return { items: merged, total: null };
-}
-
-export async function listStaleRefreshCandidatesHandler(
-	ctx: QueryCtx,
-	args: { now: number; limitPerType: number }
-): Promise<RefreshCandidate[]> {
-	const [movies, tvShows] = await Promise.all([
-		ctx.db
-			.query('movies')
-			.withIndex('by_nextRefreshAt', (q) => q.lte('nextRefreshAt', args.now))
-			.take(args.limitPerType),
-		ctx.db
-			.query('tvShows')
-			.withIndex('by_nextRefreshAt', (q) => q.lte('nextRefreshAt', args.now))
-			.take(args.limitPerType)
-	]);
-
-	const movieCandidates: RefreshCandidate[] = movies
-		.map((movie): RefreshCandidate | null => {
-			if (typeof movie.tmdbId !== 'number') return null;
-			return {
-				mediaType: 'movie',
-				id: movie.tmdbId,
-				nextRefreshAt: movie.nextRefreshAt ?? 0
-			};
-		})
-		.filter((candidate): candidate is RefreshCandidate => candidate !== null);
-
-	const tvCandidates: RefreshCandidate[] = tvShows
-		.map((tvShow): RefreshCandidate | null => {
-			if (typeof tvShow.tmdbId !== 'number') return null;
-			return {
-				mediaType: 'tv',
-				id: tvShow.tmdbId,
-				nextRefreshAt: tvShow.nextRefreshAt ?? 0
-			};
-		})
-		.filter((candidate): candidate is RefreshCandidate => candidate !== null);
-
-	return [...movieCandidates, ...tvCandidates].sort((a, b) => a.nextRefreshAt - b.nextRefreshAt);
 }

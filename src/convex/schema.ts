@@ -266,21 +266,6 @@ export default defineSchema({
 		.index('by_nextRefreshAt', ['nextRefreshAt']),
 
 	// =====================================================================
-	// Transient refresh leases used to dedupe stale detail refresh jobs.
-	// =====================================================================
-	detailRefreshLeases: defineTable({
-		refreshKey: v.string(),
-		mediaType: mediaTypeValidator,
-		source: detailSourceValidator,
-		externalId: v.number(),
-		owner: v.string(),
-		leasedAt: v.number(),
-		leaseExpiresAt: v.number()
-	})
-		.index('by_refreshKey', ['refreshKey'])
-		.index('by_leaseExpiresAt', ['leaseExpiresAt']),
-
-	// =====================================================================
 	// Persistent details refresh queue/state used by bounded background workers.
 	// One row per source+mediaType+externalId.
 	// =====================================================================
@@ -295,6 +280,7 @@ export default defineSchema({
 		lastRequestedAt: v.number(),
 		nextAttemptAt: v.number(),
 		attemptCount: v.number(),
+		forceRefresh: v.optional(v.boolean()),
 		lastStartedAt: v.optional(v.number()),
 		lastFinishedAt: v.optional(v.number()),
 		lastSuccessAt: v.optional(v.number()),

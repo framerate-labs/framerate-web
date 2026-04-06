@@ -19,6 +19,7 @@ import {
 	buildTVPatch
 } from '../../utils/details/detailsUtils';
 import { getMovieBySource, getTVShowBySource } from '../../utils/mediaLookup';
+import { ensureDetailRefreshQueueRow } from './queueState';
 import { computeRefreshErrorBackoffMs } from '../detailsRefreshService';
 
 const MOVIE_SYNC_POLICY = {
@@ -109,6 +110,15 @@ export async function insertMediaHandler(ctx: MutationCtx, args: InsertMediaArgs
 		);
 		if (!existing) {
 			await ctx.db.insert('movies', buildMovieInsertDoc(args, incomingCreatorCredits));
+			if (args.source === 'tmdb' && typeof args.externalId === 'number') {
+				await ensureDetailRefreshQueueRow(ctx, {
+					mediaType: 'movie',
+					source: 'tmdb',
+					externalId: args.externalId,
+					now: args.detailFetchedAt,
+					initialNextRefreshAt: args.nextRefreshAt
+				});
+			}
 			return;
 		}
 
@@ -127,6 +137,15 @@ export async function insertMediaHandler(ctx: MutationCtx, args: InsertMediaArgs
 	const existing: StoredTVDoc | null = await getTVShowBySource(ctx, args.source, args.externalId);
 	if (!existing) {
 		await ctx.db.insert('tvShows', buildTVInsertDoc(args, incomingCreatorCredits));
+		if (args.source === 'tmdb' && typeof args.externalId === 'number') {
+			await ensureDetailRefreshQueueRow(ctx, {
+				mediaType: 'tv',
+				source: 'tmdb',
+				externalId: args.externalId,
+				now: args.detailFetchedAt,
+				initialNextRefreshAt: args.nextRefreshAt
+			});
+		}
 		return;
 	}
 

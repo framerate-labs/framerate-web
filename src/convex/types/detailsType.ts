@@ -1,4 +1,3 @@
-import type { Id } from '../_generated/dataModel';
 import type { getMovieBySource, getTVShowBySource, MediaSource } from '../utils/mediaLookup';
 import type { MediaType } from './mediaTypes';
 import type { NormalizedMediaDetails } from './tmdb/detailsTypes';
@@ -123,14 +122,6 @@ export type RefreshIfStaleResult = {
 	nextRefreshAt: number | null;
 };
 
-export type SweepStaleDetailsResult = {
-	scanned: number;
-	selected: number;
-	refreshed: number;
-	skipped: number;
-	failed: number;
-};
-
 export type RefreshIfStaleArgs = {
 	mediaType: 'movie' | 'tv';
 	id: number | string;
@@ -142,12 +133,6 @@ export type RefreshIfStaleArgs = {
 		seasonKey: string;
 		tmdbSeasonNumber?: number | null;
 	} | null;
-};
-
-export type RefreshCandidate = {
-	mediaType: 'movie' | 'tv';
-	id: number;
-	nextRefreshAt: number;
 };
 
 export type PreparedDetailSync = {
@@ -255,6 +240,5 @@ export type TVInsertDoc = SourceIdentifiers & {
 export type MoviePatch = Partial<Omit<MovieInsertDoc, keyof SourceIdentifiers>>;
 export type TVPatch = Partial<Omit<TVInsertDoc, keyof SourceIdentifiers>>;
 
-export type DetailRefreshLeaseId = Id<'detailRefreshLeases'>;
 export type DetailMediaType = MediaType;
 export type DetailMediaSource = MediaSource;
