@@ -121,6 +121,40 @@ const creditOverrideScopeValidator = v.union(
 	v.literal('media_character'),
 	v.literal('global_character')
 );
+const collectionVisibilityValidator = v.union(
+	v.literal('private'),
+	v.literal('public')
+);
+const collectionShareAudienceValidator = v.union(
+	v.literal('creatorOnly'),
+	v.literal('anyone'),
+	v.literal('friends'),
+	v.literal('followers')
+);
+const collectionLayoutValidator = v.union(
+	v.literal('ordered'),
+	v.literal('unordered'),
+	v.literal('tiered')
+);
+const collectionSortOptionValidator = v.union(
+	v.literal('custom'),
+	v.literal('title'),
+	v.literal('releaseDate'),
+	v.literal('dateAdded')
+);
+const collectionRestrictionsValidator = v.object({
+	allowMovies: v.boolean(),
+	allowTV: v.boolean(),
+	allowAnime: v.boolean(),
+	allowNonAnime: v.boolean()
+});
+const collectionCoverItemValidator = v.object({
+	mediaType: mediaTypeValidator,
+	tmdbId: v.union(v.number(), v.null()),
+	title: v.string(),
+	posterPath: v.union(v.string(), v.null()),
+	isAnime: v.boolean()
+});
 
 export default defineSchema({
 	// =====================================================================
@@ -878,6 +912,166 @@ export default defineSchema({
 		.index('by_userId', ['userId'])
 		.index('by_tvShowId', ['tvShowId'])
 		.index('by_userId_tvShowId', ['userId', 'tvShowId']),
+
+	// =====================================================================
+	// Lightweight user profile registry for collaborator search and public
+	// collection attribution. Access control is always keyed by userId.
+	// =====================================================================
+	userProfiles: defineTable({
+		userId: v.string(),
+		email: v.union(v.string(), v.null()),
+		emailNormalized: v.union(v.string(), v.null()),
+		displayName: v.string(),
+		searchName: v.string(),
+		profilePictureUrl: v.union(v.string(), v.null()),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_userId', ['userId'])
+		.index('by_emailNormalized', ['emailNormalized'])
+		.index('by_searchName', ['searchName']),
+
+	// =====================================================================
+	// Canonical community collections/tier lists.
+	// =====================================================================
+	collections: defineTable({
+		creatorId: v.string(),
+		shareKey: v.string(),
+		slug: v.string(),
+		title: v.string(),
+		description: v.union(v.string(), v.null()),
+		visibility: collectionVisibilityValidator,
+		shareAudience: collectionShareAudienceValidator,
+		layout: collectionLayoutValidator,
+		commentsEnabled: v.boolean(),
+		restrictions: collectionRestrictionsValidator,
+		defaultSort: collectionSortOptionValidator,
+		clonedFromCollectionId: v.optional(v.id('collections')),
+		clonedFromShareKey: v.optional(v.string()),
+		collaboratorCount: v.number(),
+		itemCount: v.number(),
+		likeCount: v.number(),
+		saveCount: v.number(),
+		commentCount: v.number(),
+		viewCount: v.number(),
+		popularityScore: v.number(),
+		coverItems: v.array(collectionCoverItemValidator),
+		lastCommentAt: v.union(v.number(), v.null()),
+		lastViewedAt: v.union(v.number(), v.null()),
+		activityAt: v.number(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_shareKey', ['shareKey'])
+		.index('by_creatorId_updatedAt', ['creatorId', 'updatedAt'])
+		.index('by_visibility_popularityScore', ['visibility', 'popularityScore'])
+		.index('by_visibility_activityAt', ['visibility', 'activityAt'])
+		.index('by_visibility_createdAt', ['visibility', 'createdAt']),
+
+	collectionCollaborators: defineTable({
+		collectionId: v.id('collections'),
+		userId: v.string(),
+		addedByUserId: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_collectionId', ['collectionId'])
+		.index('by_collectionId_userId', ['collectionId', 'userId'])
+		.index('by_userId', ['userId']),
+
+	collectionViewerInvites: defineTable({
+		collectionId: v.id('collections'),
+		userId: v.string(),
+		addedByUserId: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_collectionId', ['collectionId'])
+		.index('by_collectionId_userId', ['collectionId', 'userId'])
+		.index('by_userId', ['userId']),
+
+	socialFollows: defineTable({
+		followerUserId: v.string(),
+		followedUserId: v.string(),
+		createdAt: v.number()
+	})
+		.index('by_follower_followed', ['followerUserId', 'followedUserId'])
+		.index('by_followerUserId', ['followerUserId'])
+		.index('by_followedUserId', ['followedUserId']),
+
+	collectionItems: defineTable({
+		collectionId: v.id('collections'),
+		mediaType: mediaTypeValidator,
+		movieId: v.union(v.id('movies'), v.null()),
+		tvShowId: v.union(v.id('tvShows'), v.null()),
+		tmdbId: v.union(v.number(), v.null()),
+		title: v.string(),
+		posterPath: v.union(v.string(), v.null()),
+		releaseDate: v.union(v.string(), v.null()),
+		isAnime: v.boolean(),
+		tierKey: v.union(v.string(), v.null()),
+		sortOrder: v.float64(),
+		addedByUserId: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_collectionId_sortOrder', ['collectionId', 'sortOrder'])
+		.index('by_collectionId_tierKey_sortOrder', ['collectionId', 'tierKey', 'sortOrder'])
+		.index('by_collectionId_movieId', ['collectionId', 'movieId'])
+		.index('by_collectionId_tvShowId', ['collectionId', 'tvShowId']),
+
+	collectionTiers: defineTable({
+		collectionId: v.id('collections'),
+		key: v.string(),
+		label: v.string(),
+		sortOrder: v.float64(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_collectionId_sortOrder', ['collectionId', 'sortOrder'])
+		.index('by_collectionId_key', ['collectionId', 'key']),
+
+	collectionComments: defineTable({
+		collectionId: v.id('collections'),
+		userId: v.string(),
+		body: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number()
+	})
+		.index('by_collectionId_createdAt', ['collectionId', 'createdAt']),
+
+	collectionLikes: defineTable({
+		collectionId: v.id('collections'),
+		userId: v.string(),
+		createdAt: v.number()
+	})
+		.index('by_collectionId', ['collectionId'])
+		.index('by_collectionId_userId', ['collectionId', 'userId'])
+		.index('by_userId', ['userId']),
+
+	collectionSaves: defineTable({
+		collectionId: v.id('collections'),
+		userId: v.string(),
+		createdAt: v.number()
+	})
+		.index('by_collectionId', ['collectionId'])
+		.index('by_collectionId_userId', ['collectionId', 'userId'])
+		.index('by_userId', ['userId']),
+
+	collectionViews: defineTable({
+		collectionId: v.id('collections'),
+		viewerKey: v.string(),
+		windowStart: v.number(),
+		createdAt: v.number(),
+		lastViewedAt: v.number()
+	})
+		.index('by_collectionId_viewerKey_windowStart', [
+			'collectionId',
+			'viewerKey',
+			'windowStart'
+		])
+		.index('by_collectionId_windowStart', ['collectionId', 'windowStart'])
+		.index('by_createdAt', ['createdAt']),
 
 	// =====================================================================
 	// Secure server-side WorkOS session/refresh-token state.

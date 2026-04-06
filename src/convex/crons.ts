@@ -108,4 +108,11 @@ crons.interval(
 	}
 );
 
+// Prune old unique-view buckets after they have served their dedupe purpose.
+crons.interval(
+	'cleanup collection view windows',
+	{ hours: 12 },
+	internal.collections.cleanupCollectionViewWindowsNow
+);
+
 export default crons;
