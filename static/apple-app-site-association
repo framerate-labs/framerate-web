@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appID": "6LS8X5CWAH.co.meridianlabs.FrameRate",
+        "paths": [
+          "/share/list/*"
+        ]
+      }
+    ]
+  }
+}

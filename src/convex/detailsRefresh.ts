@@ -1,14 +1,21 @@
+import type { Id } from './_generated/dataModel';
+import type { ActionCtx, MutationCtx } from './_generated/server';
 import type {
 	ProcessQueueResult,
 	QueueUpsertResult
 } from './services/detailsRefresh/resultParsers';
-import type { ActionCtx } from './_generated/server';
 import type { RefreshIfStaleResult } from './types/detailsType';
 
 import { v } from 'convex/values';
 
 import { api, internal } from './_generated/api';
-import { action, internalAction, internalMutation, internalQuery, mutation } from './_generated/server';
+import {
+	action,
+	internalAction,
+	internalMutation,
+	internalQuery,
+	mutation
+} from './_generated/server';
 import {
 	DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
 	DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY
@@ -18,20 +25,26 @@ import {
 	upsertCreditCacheHandler
 } from './services/detailsRefresh/creditCacheHandlers';
 import {
+	backfillMissingDetailRefreshQueueRowsPageHandler,
+	getCreditCacheRepairPageHandler,
+	getDetailRefreshQueueRepairPageHandler,
+	repairCreditCachePageHandler,
+	repairDetailRefreshQueuePageHandler
+} from './services/detailsRefresh/maintenanceHandlers';
+import {
 	getStoredMediaHandler,
 	insertMediaHandler,
 	recordRefreshFailureHandler
 } from './services/detailsRefresh/mediaHandlers';
-import { getDetailRefreshSnapshotHandler } from './services/detailsRefresh/snapshotHandlers';
 import {
-	backfillMissingDetailRefreshQueueRowsPageHandler,
-	repairDetailRefreshArtifactsHandler
-} from './services/detailsRefresh/maintenanceHandlers';
-import {
-	claimNextDetailRefreshQueueJobHandler,
+	claimDetailRefreshQueueJobsHandler,
+	finalizeDetailRefreshWorkerRunHandler,
 	finishDetailRefreshQueueJobHandler,
 	listDetailRefreshQueueHandler,
+	markDetailRefreshWorkerFinishedHandler,
+	markDetailRefreshWorkerStartedHandler,
 	pruneDetailRefreshQueueHandler,
+	scheduleDetailRefreshWorkerIfNeededHandler,
 	syncDetailRefreshQueueRowHandler,
 	upsertDetailRefreshQueueRequestHandler
 } from './services/detailsRefresh/queueHandlers';
@@ -39,11 +52,13 @@ import {
 	isQueueUpsertResult,
 	toAnimeSeasonEnqueueStatus
 } from './services/detailsRefresh/resultParsers';
+import { getDetailRefreshSnapshotHandler } from './services/detailsRefresh/snapshotHandlers';
 import {
 	computeRefreshErrorBackoffMs,
 	DEFAULT_DETAIL_REFRESH_CONFIG,
 	runRefreshIfStale
 } from './services/detailsRefreshService';
+import { getMovieBySource, getTVShowBySource } from './utils/mediaLookup';
 
 const mediaTypeValidator = v.union(v.literal('movie'), v.literal('tv'));
 const sourceValidator = v.union(v.literal('tmdb'), v.literal('trakt'), v.literal('imdb'));
@@ -59,7 +74,6 @@ const detailsEpisodeValidator = v.object({
 	seasonNumber: v.number(),
 	episodeNumber: v.number()
 });
-
 const detailCreatorCreditValidator = v.object({
 	type: v.union(v.literal('person'), v.literal('company')),
 	tmdbId: v.union(v.number(), v.null()),
@@ -121,6 +135,42 @@ const creditSeasonContextValidator = v.object({
 	seasonKey: v.string(),
 	tmdbSeasonNumber: v.optional(v.union(v.number(), v.null()))
 });
+const detailPayloadValidator = v.object({
+	mediaType: mediaTypeValidator,
+	source: sourceValidator,
+	externalId: v.union(v.number(), v.string()),
+	title: v.string(),
+	posterPath: v.union(v.string(), v.null()),
+	backdropPath: v.union(v.string(), v.null()),
+	releaseDate: v.union(v.string(), v.null()),
+	overview: v.union(v.string(), v.null()),
+	status: v.string(),
+	runtime: v.union(v.number(), v.null()),
+	numberOfSeasons: v.optional(v.number()),
+	seasons: v.optional(v.union(v.array(detailSeasonValidator), v.null())),
+	lastAirDate: v.union(v.string(), v.null()),
+	lastEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),
+	nextEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),
+	detailSchemaVersion: v.number(),
+	detailFetchedAt: v.number(),
+	nextRefreshAt: v.number(),
+	isAnime: v.boolean(),
+	isAnimeSource: v.union(v.literal('auto'), v.literal('manual')),
+	creatorCredits: v.array(detailCreatorCreditValidator)
+});
+const creditCachePayloadValidator = v.object({
+	mediaType: mediaTypeValidator,
+	tmdbId: v.number(),
+	source: creditSourceValidator,
+	seasonKey: v.union(v.string(), v.null()),
+	coverage: creditCoverageValidator,
+	castCredits: v.array(detailCastCreditValidator),
+	crewCredits: v.array(detailCrewCreditValidator),
+	castTotal: v.number(),
+	crewTotal: v.number(),
+	fetchedAt: v.number(),
+	nextRefreshAt: v.number()
+});
 
 type BackfillDetailRefreshQueuePageResult = {
 	scanned: number;
@@ -128,6 +178,64 @@ type BackfillDetailRefreshQueuePageResult = {
 	cursor: string | null;
 	isDone: boolean;
 };
+
+type RepairPageItem<TRowId> = {
+	rowId: TRowId;
+	key: string;
+};
+type DetailRefreshRequestArgs = {
+	mediaType: 'movie' | 'tv';
+	id: number | string;
+	source?: 'tmdb' | 'trakt' | 'imdb';
+	force?: boolean;
+	skipQueueUpsert?: boolean;
+	skipDetailRefresh?: boolean;
+	creditCoverageTarget?: 'preview' | 'full';
+	creditSeasonContext?: { seasonKey: string; tmdbSeasonNumber?: number | null } | null;
+	skipExecutionRecheck?: boolean;
+};
+type RepairPageResult<TRowId> = {
+	items: Array<RepairPageItem<TRowId>>;
+	cursor: string | null;
+	isDone: boolean;
+};
+type RepairMutationResult = {
+	rowsDeleted: number;
+	rowsPatched: number;
+};
+
+function splitRepairPageItems<TRowId>(
+	items: RepairPageItem<TRowId>[],
+	isDone: boolean
+): {
+	readyRowIds: TRowId[];
+	pendingItems: RepairPageItem<TRowId>[];
+} {
+	if (items.length === 0) {
+		return { readyRowIds: [], pendingItems: [] };
+	}
+	if (isDone) {
+		return {
+			readyRowIds: items.map((item) => item.rowId),
+			pendingItems: []
+		};
+	}
+	const trailingKey = items[items.length - 1]?.key;
+	if (!trailingKey) {
+		return {
+			readyRowIds: items.map((item) => item.rowId),
+			pendingItems: []
+		};
+	}
+	let splitIndex = items.length;
+	while (splitIndex > 0 && items[splitIndex - 1]?.key === trailingKey) {
+		splitIndex -= 1;
+	}
+	return {
+		readyRowIds: items.slice(0, splitIndex).map((item) => item.rowId),
+		pendingItems: items.slice(splitIndex)
+	};
+}
 
 function parseNumericTMDBId(id: number | string): number | null {
 	if (typeof id === 'number' && Number.isFinite(id) && Number.isInteger(id) && id > 0) return id;
@@ -138,21 +246,103 @@ function parseNumericTMDBId(id: number | string): number | null {
 	return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-async function runDetailRefreshRequest(
+function normalizeRefreshRequestId(
+	source: DetailRefreshRequestArgs['source'],
+	id: DetailRefreshRequestArgs['id']
+): number | string {
+	if ((source ?? 'tmdb') !== 'tmdb') {
+		return id;
+	}
+	return parseNumericTMDBId(id) ?? id;
+}
+
+async function scheduleQueuedDetailRefresh(
+	ctx: MutationCtx,
+	args: {
+		now: number;
+		queueResult: QueueUpsertResult;
+		mediaType: 'movie' | 'tv';
+		id: number;
+		warningMessage: string;
+	}
+): Promise<void> {
+	if (!args.queueResult.queued) {
+		return;
+	}
+
+	try {
+		await scheduleDetailRefreshWorkerIfNeededHandler(ctx, {
+			now: args.now,
+			maxJobs: 1,
+			preferredRowId: args.queueResult.rowId
+		});
+	} catch (error) {
+		console.warn(args.warningMessage, {
+			mediaType: args.mediaType,
+			id: args.id,
+			error
+		});
+	}
+}
+
+async function processRepairPages<TRowId>(
+	loadPage: (cursor: string | null) => Promise<RepairPageResult<TRowId>>,
+	repairRows: (rowIds: TRowId[]) => Promise<RepairMutationResult>
+): Promise<RepairMutationResult> {
+	let cursor: string | null = null;
+	let pendingItems: Array<RepairPageItem<TRowId>> = [];
+	let rowsDeleted = 0;
+	let rowsPatched = 0;
+	let isDone = false;
+
+	while (!isDone) {
+		const page = await loadPage(cursor);
+		const combinedItems = [...pendingItems, ...page.items];
+		const split = splitRepairPageItems(combinedItems, page.isDone);
+		if (split.readyRowIds.length > 0) {
+			const result = await repairRows(split.readyRowIds);
+			rowsDeleted += result.rowsDeleted;
+			rowsPatched += result.rowsPatched;
+		}
+		pendingItems = split.pendingItems;
+		cursor = page.cursor;
+		isDone = page.isDone;
+	}
+
+	if (pendingItems.length > 0) {
+		const result = await repairRows(pendingItems.map((item) => item.rowId));
+		rowsDeleted += result.rowsDeleted;
+		rowsPatched += result.rowsPatched;
+	}
+
+	return { rowsDeleted, rowsPatched };
+}
+
+async function finishClaimedDetailRefreshQueueJob(
 	ctx: ActionCtx,
 	args: {
-		mediaType: 'movie' | 'tv';
-		id: number | string;
-		source?: 'tmdb' | 'trakt' | 'imdb';
-		force?: boolean;
-		skipQueueUpsert?: boolean;
-		skipDetailRefresh?: boolean;
-		creditCoverageTarget?: 'preview' | 'full';
-		creditSeasonContext?: { seasonKey: string; tmdbSeasonNumber?: number | null } | null;
+		rowId: Id<'detailRefreshQueue'>;
+		now: number;
+		result: RefreshIfStaleResult;
 	}
+): Promise<void> {
+	await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
+		rowId: args.rowId,
+		now: args.now,
+		outcome: 'success',
+		nextRefreshAt:
+			args.result.nextRefreshAt ?? args.now + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
+		lastResultStatus: args.result.reason
+	});
+}
+
+async function runDetailRefreshRequest(
+	ctx: ActionCtx,
+	args: DetailRefreshRequestArgs
 ): Promise<RefreshIfStaleResult> {
 	const source = args.source ?? 'tmdb';
-	const tmdbNumericId = source === 'tmdb' ? parseNumericTMDBId(args.id) : null;
+	const normalizedId = normalizeRefreshRequestId(source, args.id);
+	const tmdbNumericId = source === 'tmdb' ? parseNumericTMDBId(normalizedId) : null;
 	const effectiveSkipDetailRefresh = args.skipDetailRefresh === true;
 	const now = Date.now();
 
@@ -161,14 +351,17 @@ async function runDetailRefreshRequest(
 			ctx,
 			{
 				mediaType: args.mediaType,
-				id: args.id,
-				source: args.source,
+				id: normalizedId,
+				source,
 				force: args.force,
 				skipDetailRefresh: effectiveSkipDetailRefresh,
 				creditCoverageTarget: args.creditCoverageTarget,
 				creditSeasonContext: args.creditSeasonContext ?? null
 			},
-			DETAIL_REFRESH_CONFIG
+			{
+				...DETAIL_REFRESH_CONFIG,
+				skipExecutionRecheck: args.skipExecutionRecheck === true
+			}
 		);
 
 		const shouldSyncQueueRow =
@@ -183,13 +376,14 @@ async function runDetailRefreshRequest(
 				externalId: tmdbNumericId,
 				now: syncNow,
 				outcome: 'success',
-				nextRefreshAt: result.nextRefreshAt ?? syncNow + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
+				nextRefreshAt:
+					result.nextRefreshAt ?? syncNow + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
 				lastResultStatus: result.reason
 			});
 		}
 
 		const shouldCheckAnimeEnrichment =
-			tmdbNumericId != null && effectiveSkipDetailRefresh === false;
+			tmdbNumericId != null && effectiveSkipDetailRefresh === false && result.refreshed === true;
 		if (shouldCheckAnimeEnrichment) {
 			const tmdbId = tmdbNumericId;
 			const rawAnimeEnqueueStatus = await ctx.runQuery(
@@ -261,29 +455,7 @@ export const getDetailRefreshSnapshot = internalQuery({
 });
 
 export const insertMedia = internalMutation({
-	args: {
-		mediaType: mediaTypeValidator,
-		source: sourceValidator,
-		externalId: v.union(v.number(), v.string()),
-		title: v.string(),
-		posterPath: v.union(v.string(), v.null()),
-		backdropPath: v.union(v.string(), v.null()),
-		releaseDate: v.union(v.string(), v.null()),
-		overview: v.union(v.string(), v.null()),
-		status: v.string(),
-		runtime: v.union(v.number(), v.null()),
-		numberOfSeasons: v.optional(v.number()),
-		seasons: v.optional(v.union(v.array(detailSeasonValidator), v.null())),
-		lastAirDate: v.union(v.string(), v.null()),
-		lastEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),
-		nextEpisodeToAir: v.optional(v.union(detailsEpisodeValidator, v.null())),
-		detailSchemaVersion: v.number(),
-		detailFetchedAt: v.number(),
-		nextRefreshAt: v.number(),
-		isAnime: v.boolean(),
-		isAnimeSource: v.union(v.literal('auto'), v.literal('manual')),
-		creatorCredits: v.array(detailCreatorCreditValidator)
-	},
+	args: detailPayloadValidator,
 	handler: insertMediaHandler
 });
 
@@ -298,20 +470,31 @@ export const getCreditCacheBySource = internalQuery({
 });
 
 export const upsertCreditCache = internalMutation({
-	args: {
-		mediaType: mediaTypeValidator,
-		tmdbId: v.number(),
-		source: creditSourceValidator,
-		seasonKey: v.union(v.string(), v.null()),
-		coverage: creditCoverageValidator,
-		castCredits: v.array(detailCastCreditValidator),
-		crewCredits: v.array(detailCrewCreditValidator),
-		castTotal: v.number(),
-		crewTotal: v.number(),
-		fetchedAt: v.number(),
-		nextRefreshAt: v.number()
-	},
+	args: creditCachePayloadValidator,
 	handler: upsertCreditCacheHandler
+});
+
+export const persistDetailRefreshArtifacts = internalMutation({
+	args: {
+		detail: v.optional(detailPayloadValidator),
+		creditCache: v.optional(creditCachePayloadValidator)
+	},
+	handler: async (ctx, args) => {
+		if (!args.detail && !args.creditCache) {
+			return { ok: true, persistedDetail: false, persistedCreditCache: false };
+		}
+		if (args.detail) {
+			await insertMediaHandler(ctx, args.detail);
+		}
+		if (args.creditCache) {
+			await upsertCreditCacheHandler(ctx, args.creditCache);
+		}
+		return {
+			ok: true,
+			persistedDetail: args.detail != null,
+			persistedCreditCache: args.creditCache != null
+		};
+	}
 });
 
 export const upsertDetailRefreshQueueRequest = internalMutation({
@@ -326,12 +509,15 @@ export const upsertDetailRefreshQueueRequest = internalMutation({
 	handler: upsertDetailRefreshQueueRequestHandler
 });
 
-export const claimNextDetailRefreshQueueJob = internalMutation({
+export const claimDetailRefreshQueueJobs = internalMutation({
 	args: {
 		now: v.number(),
-		mediaType: v.optional(mediaTypeValidator)
+		maxJobs: v.number(),
+		mediaType: v.optional(mediaTypeValidator),
+		preferredRowId: v.optional(v.id('detailRefreshQueue')),
+		activeTtlMs: v.optional(v.number())
 	},
-	handler: claimNextDetailRefreshQueueJobHandler
+	handler: claimDetailRefreshQueueJobsHandler
 });
 
 export const finishDetailRefreshQueueJob = internalMutation({
@@ -345,6 +531,18 @@ export const finishDetailRefreshQueueJob = internalMutation({
 		lastResultStatus: v.optional(v.string())
 	},
 	handler: finishDetailRefreshQueueJobHandler
+});
+
+export const finalizeDetailRefreshWorkerRun = internalMutation({
+	args: {
+		now: v.number(),
+		maxJobs: v.number(),
+		shouldContinueProcessing: v.boolean(),
+		preferredRowId: v.optional(v.id('detailRefreshQueue')),
+		delayMs: v.optional(v.number()),
+		activeTtlMs: v.optional(v.number())
+	},
+	handler: finalizeDetailRefreshWorkerRunHandler
 });
 
 export const syncDetailRefreshQueueRow = internalMutation({
@@ -362,12 +560,42 @@ export const syncDetailRefreshQueueRow = internalMutation({
 	handler: syncDetailRefreshQueueRowHandler
 });
 
-export const pruneDetailRefreshQueue = internalMutation({
+export const scheduleDetailRefreshWorkerIfNeeded = internalMutation({
 	args: {
 		now: v.number(),
+		maxJobs: v.number(),
+		delayMs: v.optional(v.number()),
+		activeTtlMs: v.optional(v.number()),
+		preferredRowId: v.optional(v.id('detailRefreshQueue'))
+	},
+	handler: scheduleDetailRefreshWorkerIfNeededHandler
+});
+
+export const markDetailRefreshWorkerStarted = internalMutation({
+	args: {
+		now: v.number(),
+		activeTtlMs: v.optional(v.number())
+	},
+	handler: markDetailRefreshWorkerStartedHandler
+});
+
+export const markDetailRefreshWorkerFinished = internalMutation({
+	args: {
+		now: v.number()
+	},
+	handler: markDetailRefreshWorkerFinishedHandler
+});
+
+export const pruneDetailRefreshQueue = internalMutation({
+	args: {
+		now: v.optional(v.number()),
 		limit: v.optional(v.number())
 	},
-	handler: pruneDetailRefreshQueueHandler
+	handler: async (ctx, args) =>
+		pruneDetailRefreshQueueHandler(ctx, {
+			now: args.now ?? Date.now(),
+			limit: args.limit
+		})
 });
 
 export const listDetailRefreshQueue = internalQuery({
@@ -438,12 +666,86 @@ export const backfillMissingDetailRefreshQueueRows = internalAction({
 	}
 });
 
-export const repairDetailRefreshArtifacts = internalMutation({
+export const getDetailRefreshQueueRepairPage = internalQuery({
 	args: {
-		now: v.optional(v.number())
+		limit: v.optional(v.number()),
+		cursor: v.optional(v.union(v.string(), v.null()))
 	},
-	handler: async (ctx, args) =>
-		repairDetailRefreshArtifactsHandler(ctx, { now: args.now ?? Date.now() })
+	handler: getDetailRefreshQueueRepairPageHandler
+});
+
+export const repairDetailRefreshQueuePage = internalMutation({
+	args: {
+		rowIds: v.array(v.id('detailRefreshQueue')),
+		now: v.number()
+	},
+	handler: repairDetailRefreshQueuePageHandler
+});
+
+export const getCreditCacheRepairPage = internalQuery({
+	args: {
+		limit: v.optional(v.number()),
+		cursor: v.optional(v.union(v.string(), v.null()))
+	},
+	handler: getCreditCacheRepairPageHandler
+});
+
+export const repairCreditCachePage = internalMutation({
+	args: {
+		rowIds: v.array(v.id('creditCache'))
+	},
+	handler: repairCreditCachePageHandler
+});
+
+export const repairDetailRefreshArtifacts = internalAction({
+	args: {
+		now: v.optional(v.number()),
+		pageSize: v.optional(v.number())
+	},
+	handler: async (
+		ctx,
+		args
+	): Promise<{
+		queueRowsDeleted: number;
+		queueRowsPatched: number;
+		creditRowsDeleted: number;
+		creditRowsPatched: number;
+	}> => {
+		const now = args.now ?? Date.now();
+		const pageSize = Math.max(50, Math.min(args.pageSize ?? 250, 500));
+		const { rowsDeleted: queueRowsDeleted, rowsPatched: queueRowsPatched } =
+			await processRepairPages<Id<'detailRefreshQueue'>>(
+				(cursor) =>
+					ctx.runQuery(internal.detailsRefresh.getDetailRefreshQueueRepairPage, {
+						limit: pageSize,
+						cursor
+					}),
+				(rowIds) =>
+					ctx.runMutation(internal.detailsRefresh.repairDetailRefreshQueuePage, {
+						rowIds,
+						now
+					})
+			);
+		const { rowsDeleted: creditRowsDeleted, rowsPatched: creditRowsPatched } =
+			await processRepairPages<Id<'creditCache'>>(
+				(cursor) =>
+					ctx.runQuery(internal.detailsRefresh.getCreditCacheRepairPage, {
+						limit: pageSize,
+						cursor
+					}),
+				(rowIds) =>
+					ctx.runMutation(internal.detailsRefresh.repairCreditCachePage, {
+						rowIds
+					})
+			);
+
+		return {
+			queueRowsDeleted,
+			queueRowsPatched,
+			creditRowsDeleted,
+			creditRowsPatched
+		};
+	}
 });
 
 export const recordRefreshFailure = internalMutation({
@@ -499,97 +801,138 @@ export const requestDetailRefreshForTMDB = mutation({
 		if (!isQueueUpsertResult(rawResult)) {
 			throw new Error('Invalid queue upsert result');
 		}
-		if (rawResult.queued) {
-			try {
-				await ctx.scheduler.runAfter(0, internal.detailsRefresh.processDetailRefreshQueue, {
-					maxJobs: 3
-				});
-			} catch (error) {
-				console.warn('[detailsRefresh] failed to schedule detail refresh queue processor', {
-					mediaType: args.mediaType,
-					id: args.id,
-					error
-				});
-			}
-		}
+		await scheduleQueuedDetailRefresh(ctx, {
+			now,
+			queueResult: rawResult,
+			mediaType: args.mediaType,
+			id: args.id,
+			warningMessage: '[detailsRefresh] failed to schedule detail refresh queue processor'
+		});
 		return rawResult;
+	}
+});
+
+export const ensureDetailMaterializedOrQueue = mutation({
+	args: {
+		mediaType: mediaTypeValidator,
+		id: v.number()
+	},
+	handler: async (ctx, args) => {
+		const existing =
+			args.mediaType === 'movie'
+				? await getMovieBySource(ctx, 'tmdb', args.id)
+				: await getTVShowBySource(ctx, 'tmdb', args.id);
+		if (existing) {
+			return {
+				exists: true,
+				queued: false,
+				inserted: false
+			};
+		}
+
+		const now = Date.now();
+		const rawResult = await upsertDetailRefreshQueueRequestHandler(ctx, {
+			mediaType: args.mediaType,
+			source: 'tmdb',
+			externalId: args.id,
+			priority: DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY,
+			now
+		});
+		if (!isQueueUpsertResult(rawResult)) {
+			throw new Error('Invalid queue upsert result');
+		}
+		await scheduleQueuedDetailRefresh(ctx, {
+			now,
+			queueResult: rawResult,
+			mediaType: args.mediaType,
+			id: args.id,
+			warningMessage: '[detailsRefresh] failed to schedule detail materialization queue processor'
+		});
+		return {
+			exists: false,
+			queued: rawResult.queued,
+			inserted: rawResult.inserted
+		};
 	}
 });
 
 export const processDetailRefreshQueue = internalAction({
 	args: {
 		maxJobs: v.optional(v.number()),
-		mediaType: v.optional(mediaTypeValidator)
+		mediaType: v.optional(mediaTypeValidator),
+		preferredRowId: v.optional(v.id('detailRefreshQueue'))
 	},
 	handler: async (ctx, args): Promise<ProcessQueueResult> => {
 		const now = Date.now();
 		const maxJobs = Math.max(1, Math.min(args.maxJobs ?? 6, 20));
-		await ctx.runMutation(internal.detailsRefresh.pruneDetailRefreshQueue, {
-			now,
-			limit: 200
-		});
 
 		let processed = 0;
 		let refreshed = 0;
 		let skipped = 0;
 		let failed = 0;
+		let shouldContinueProcessing = false;
 
-		for (let index = 0; index < maxJobs; index += 1) {
-			const loopNow = Date.now();
-			const claim = await ctx.runMutation(internal.detailsRefresh.claimNextDetailRefreshQueueJob, {
-				now: loopNow,
-				mediaType: args.mediaType
+		try {
+			const claims = await ctx.runMutation(internal.detailsRefresh.claimDetailRefreshQueueJobs, {
+				now,
+				maxJobs,
+				mediaType: args.mediaType,
+				preferredRowId: args.preferredRowId
 			});
-			if (!claim) break;
-			processed += 1;
-			try {
-				const result = await runDetailRefreshRequest(ctx, {
-					mediaType: claim.mediaType,
-					id: claim.externalId,
-					source: claim.source,
-					force: claim.forceRefresh === true,
-					skipQueueUpsert: true,
-					creditCoverageTarget: 'full'
-				});
-				if (result.refreshed) {
-					refreshed += 1;
-					const finishedAt = Date.now();
+
+			for (const claim of claims) {
+				processed += 1;
+				try {
+					const result = await runDetailRefreshRequest(ctx, {
+						mediaType: claim.mediaType,
+						id: claim.externalId,
+						source: claim.source,
+						force: claim.forceRefresh === true,
+						skipQueueUpsert: true,
+						creditCoverageTarget: 'full',
+						skipExecutionRecheck: true
+					});
+					if (result.refreshed) {
+						refreshed += 1;
+						await finishClaimedDetailRefreshQueueJob(ctx, {
+							rowId: claim._id,
+							now: Date.now(),
+							result
+						});
+						continue;
+					}
+					skipped += 1;
+					await finishClaimedDetailRefreshQueueJob(ctx, {
+						rowId: claim._id,
+						now: Date.now(),
+						result
+					});
+				} catch (error) {
+					failed += 1;
+					const errorMessage = error instanceof Error ? error.message : String(error);
+					const failedAt = Date.now();
+					const backoffMs = computeRefreshErrorBackoffMs(Math.max(1, claim.attemptCount ?? 1));
 					await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
 						rowId: claim._id,
-						now: finishedAt,
-						outcome: 'success',
-						nextRefreshAt:
-							result.nextRefreshAt ?? finishedAt + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
-						lastResultStatus: result.reason
+						now: failedAt,
+						outcome: 'retry',
+						nextAttemptAt: failedAt + backoffMs,
+						lastError: errorMessage.slice(0, 500),
+						lastResultStatus: 'failed'
 					});
-					continue;
 				}
-				skipped += 1;
-				const finishedAt = Date.now();
-				await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
-					rowId: claim._id,
-					now: finishedAt,
-					outcome: 'success',
-					nextRefreshAt:
-						result.nextRefreshAt ?? finishedAt + DETAIL_REFRESH_QUEUE_FALLBACK_NEXT_REFRESH_MS,
-					lastResultStatus: result.reason
-				});
-			} catch (error) {
-				failed += 1;
-				const errorMessage = error instanceof Error ? error.message : String(error);
-				const failedAt = Date.now();
-				const backoffMs = computeRefreshErrorBackoffMs(Math.max(1, claim.attemptCount ?? 1));
-				await ctx.runMutation(internal.detailsRefresh.finishDetailRefreshQueueJob, {
-					rowId: claim._id,
-					now: failedAt,
-					outcome: 'retry',
-					nextAttemptAt: failedAt + backoffMs,
-					lastError: errorMessage.slice(0, 500),
-					lastResultStatus: 'failed'
-				});
 			}
+			shouldContinueProcessing = args.preferredRowId == null && claims.length >= maxJobs;
+		} finally {
+			await ctx.runMutation(internal.detailsRefresh.finalizeDetailRefreshWorkerRun, {
+				now: Date.now(),
+				maxJobs,
+				shouldContinueProcessing,
+				preferredRowId: args.preferredRowId
+			});
 		}
 
-		return { ok: true, processed, refreshed, skipped, failed, deferred: 0 };
+		const result = { ok: true, processed, refreshed, skipped, failed, deferred: 0 };
+		return result;
 	}
 });

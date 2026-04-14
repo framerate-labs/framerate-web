@@ -142,6 +142,10 @@ const collectionSortOptionValidator = v.union(
 	v.literal('releaseDate'),
 	v.literal('dateAdded')
 );
+const collectionSortDirectionValidator = v.union(
+	v.literal('ascending'),
+	v.literal('descending')
+);
 const collectionRestrictionsValidator = v.object({
 	allowMovies: v.boolean(),
 	allowTV: v.boolean(),
@@ -298,6 +302,19 @@ export default defineSchema({
 		.index('by_state_lastRequestedAt', ['state', 'lastRequestedAt'])
 		.index('by_nextRefreshAt', ['nextRefreshAt'])
 		.index('by_state_mediaType_nextAttemptAt', ['state', 'mediaType', 'nextAttemptAt']),
+
+	// =====================================================================
+	// Singleton-style runtime row used to debounce immediate detail queue worker
+	// scheduling so bursts of enqueue requests do not fan out into many redundant
+	// worker actions.
+	// =====================================================================
+	detailRefreshRuntime: defineTable({
+		runtimeKey: v.string(),
+		workerActiveUntil: v.optional(v.number()),
+		lastWorkerScheduledAt: v.optional(v.number()),
+		lastWorkerStartedAt: v.optional(v.number()),
+		lastWorkerFinishedAt: v.optional(v.number())
+	}).index('by_runtimeKey', ['runtimeKey']),
 
 	// =====================================================================
 	// Transient anime leases used to dedupe title sync jobs and table seeding sweeps.
@@ -907,6 +924,7 @@ export default defineSchema({
 		userId: v.string(),
 		email: v.union(v.string(), v.null()),
 		emailNormalized: v.union(v.string(), v.null()),
+		username: v.optional(v.union(v.string(), v.null())),
 		displayName: v.string(),
 		searchName: v.string(),
 		profilePictureUrl: v.union(v.string(), v.null()),
@@ -915,6 +933,7 @@ export default defineSchema({
 	})
 		.index('by_userId', ['userId'])
 		.index('by_emailNormalized', ['emailNormalized'])
+		.index('by_username', ['username'])
 		.index('by_searchName', ['searchName']),
 
 	// =====================================================================
@@ -932,6 +951,7 @@ export default defineSchema({
 		commentsEnabled: v.boolean(),
 		restrictions: collectionRestrictionsValidator,
 		defaultSort: collectionSortOptionValidator,
+		defaultSortDirection: v.optional(collectionSortDirectionValidator),
 		clonedFromCollectionId: v.optional(v.id('collections')),
 		clonedFromShareKey: v.optional(v.string()),
 		collaboratorCount: v.number(),

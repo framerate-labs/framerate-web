@@ -8,6 +8,7 @@ const crons = cronJobs();
 // touching each schedule callsite.
 const DETAIL_PROCESS_MAX_JOBS = 20;
 const DETAIL_QUEUE_MAINTENANCE_PAGE_SIZE = 250;
+const DETAIL_QUEUE_PRUNE_LIMIT = 200;
 const ANIME_ENQUEUE_STALE_LIMIT = 100;
 const ANIME_SEED_LIMIT = 200;
 const ANIME_PROCESS_MAX_JOBS = 4;
@@ -42,6 +43,17 @@ crons.interval(
 	}
 );
 
+// Prune long-idle detail queue rows separately so steady-state worker runs stay
+// focused on executing refresh work instead of paying maintenance costs.
+crons.interval(
+	'prune detail refresh queue',
+	{ hours: 12 },
+	internal.detailsRefresh.pruneDetailRefreshQueue,
+	{
+		limit: DETAIL_QUEUE_PRUNE_LIMIT
+	}
+);
+
 // Backfill missing queue rows for TMDB titles inserted or edited outside the normal write path.
 // This is a slow-moving integrity sweep, not a stale-work discovery pass.
 crons.interval(
@@ -57,7 +69,7 @@ crons.interval(
 // Runs infrequently so steady-state refresh traffic is not paying this cost.
 crons.interval(
 	'repair detail refresh artifacts',
-	{ hours: 24 },
+	{ hours: 24 * 7 },
 	internal.detailsRefresh.repairDetailRefreshArtifacts
 );
 

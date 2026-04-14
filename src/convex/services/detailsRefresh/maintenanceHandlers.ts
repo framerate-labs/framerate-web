@@ -1,12 +1,9 @@
-import type { Doc } from '../../_generated/dataModel';
-import type { MutationCtx } from '../../_generated/server';
+import type { Doc, Id } from '../../_generated/dataModel';
+import type { MutationCtx, QueryCtx } from '../../_generated/server';
 
-import { DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY } from './constants';
 import { coverageRank } from '../../utils/details/credits';
-import {
-	detailRefreshQueueKey,
-	isStaleRunningDetailQueueRow
-} from './queueState';
+import { DETAIL_REFRESH_QUEUE_BACKGROUND_PRIORITY } from './constants';
+import { detailRefreshQueueKey, isStaleRunningDetailQueueRow } from './queueState';
 
 const DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS = 20 * 60_000;
 
@@ -18,6 +15,20 @@ type BackfillQueuePageResult = {
 	cursor: string | null;
 	isDone: boolean;
 };
+
+type RepairQueuePageItem = {
+	rowId: Id<'detailRefreshQueue'>;
+	key: string;
+};
+
+type RepairCreditCachePageItem = {
+	rowId: Id<'creditCache'>;
+	key: string;
+};
+
+function uniqueRowIds<TRowId>(rowIds: readonly TRowId[]): TRowId[] {
+	return [...new Set(rowIds)];
+}
 
 function normalizePageSize(limit: number | undefined, fallback: number, max: number): number {
 	return Math.max(1, Math.min(limit ?? fallback, max));
@@ -92,7 +103,10 @@ function buildQueueRepairPatch(
 	now: number
 ): Partial<Doc<'detailRefreshQueue'>> {
 	let state = canonical.state;
-	if (state === 'running' && isStaleRunningDetailQueueRow(canonical, now, DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS)) {
+	if (
+		state === 'running' &&
+		isStaleRunningDetailQueueRow(canonical, now, DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS)
+	) {
 		state = 'queued';
 	}
 
@@ -108,8 +122,7 @@ function buildQueueRepairPatch(
 		minNullableNumber(...rows.map((row) => row.nextAttemptAt)) ?? canonical.nextAttemptAt;
 	const nextAttemptCount =
 		state === 'idle' ? 0 : Math.max(...rows.map((row) => row.attemptCount ?? 0));
-	const nextForceRefresh =
-		state === 'idle' ? false : rows.some((row) => row.forceRefresh === true);
+	const nextForceRefresh = state === 'idle' ? false : rows.some((row) => row.forceRefresh === true);
 	const nextLastStartedAt = maxNullableNumber(...rows.map((row) => row.lastStartedAt));
 	const nextLastFinishedAt = maxNullableNumber(...rows.map((row) => row.lastFinishedAt));
 	const nextLastSuccessAt = maxNullableNumber(...rows.map((row) => row.lastSuccessAt));
@@ -122,7 +135,8 @@ function buildQueueRepairPatch(
 	if (state !== canonical.state) patch.state = state;
 	if (nextPriority !== canonical.priority) patch.priority = nextPriority;
 	if (nextRequestedAt !== canonical.requestedAt) patch.requestedAt = nextRequestedAt;
-	if (nextLastRequestedAt !== canonical.lastRequestedAt) patch.lastRequestedAt = nextLastRequestedAt;
+	if (nextLastRequestedAt !== canonical.lastRequestedAt)
+		patch.lastRequestedAt = nextLastRequestedAt;
 	if (nextAttemptAt !== canonical.nextAttemptAt) patch.nextAttemptAt = nextAttemptAt;
 	if (nextAttemptCount !== (canonical.attemptCount ?? 0)) patch.attemptCount = nextAttemptCount;
 	if (nextForceRefresh !== (canonical.forceRefresh === true)) patch.forceRefresh = nextForceRefresh;
@@ -164,10 +178,13 @@ export async function backfillMissingDetailRefreshQueueRowsPageHandler(
 	}
 ): Promise<BackfillQueuePageResult> {
 	const pageSize = normalizePageSize(args.limit, 200, 500);
-	const page = await ctx.db.query(args.table).order('asc').paginate({
-		numItems: pageSize,
-		cursor: args.cursor ?? null
-	});
+	const page = await ctx.db
+		.query(args.table)
+		.order('asc')
+		.paginate({
+			numItems: pageSize,
+			cursor: args.cursor ?? null
+		});
 	let created = 0;
 
 	for (const row of page.page) {
@@ -220,85 +237,136 @@ export async function backfillMissingDetailRefreshQueueRowsPageHandler(
 	};
 }
 
-export async function repairDetailRefreshArtifactsHandler(
+export async function getDetailRefreshQueueRepairPageHandler(
+	ctx: QueryCtx,
+	args: { limit?: number; cursor?: string | null }
+): Promise<{ items: RepairQueuePageItem[]; cursor: string | null; isDone: boolean }> {
+	const pageSize = normalizePageSize(args.limit, 250, 500);
+	const page = await ctx.db
+		.query('detailRefreshQueue')
+		.withIndex('by_syncKey')
+		.order('asc')
+		.paginate({
+			numItems: pageSize,
+			cursor: args.cursor ?? null
+		});
+	return {
+		items: page.page.map((row) => ({
+			rowId: row._id,
+			key: row.syncKey
+		})),
+		cursor: page.continueCursor,
+		isDone: page.isDone
+	};
+}
+
+export async function repairDetailRefreshQueuePageHandler(
 	ctx: MutationCtx,
-	args: { now: number }
-): Promise<{
-	queueRowsDeleted: number;
-	queueRowsPatched: number;
-	creditRowsDeleted: number;
-	creditRowsPatched: number;
-}> {
-	let queueRowsDeleted = 0;
-	let queueRowsPatched = 0;
-	const queueRows = await ctx.db.query('detailRefreshQueue').withIndex('by_syncKey').collect();
-	const queueGroups = new Map<string, Doc<'detailRefreshQueue'>[]>();
-	for (const row of queueRows) {
-		const existing = queueGroups.get(row.syncKey) ?? [];
+	args: { rowIds: Id<'detailRefreshQueue'>[]; now: number }
+): Promise<{ rowsDeleted: number; rowsPatched: number }> {
+	let rowsDeleted = 0;
+	let rowsPatched = 0;
+	const uniqueIds = uniqueRowIds(args.rowIds);
+	const rows = (await Promise.all(uniqueIds.map((rowId) => ctx.db.get(rowId)))).filter(
+		(row): row is Doc<'detailRefreshQueue'> => row !== null
+	);
+	const groups = new Map<string, Doc<'detailRefreshQueue'>[]>();
+	for (const row of rows) {
+		const existing = groups.get(row.syncKey) ?? [];
 		existing.push(row);
-		queueGroups.set(row.syncKey, existing);
+		groups.set(row.syncKey, existing);
 	}
-	for (const rows of queueGroups.values()) {
-		if (rows.length === 0) continue;
+	for (const groupRows of groups.values()) {
+		if (groupRows.length === 0) continue;
 		let canonical: Doc<'detailRefreshQueue'> | null = null;
-		for (const row of rows) {
+		for (const row of groupRows) {
 			if (isBetterQueueCanonicalCandidate(row, canonical)) {
 				canonical = row;
 			}
 		}
 		if (!canonical) continue;
-		const patch = buildQueueRepairPatch(canonical, rows, args.now);
+		const patch = buildQueueRepairPatch(canonical, groupRows, args.now);
 		if (Object.keys(patch).length > 0) {
 			await ctx.db.patch(canonical._id, patch);
-			queueRowsPatched += 1;
+			rowsPatched += 1;
 		}
-		for (const row of rows) {
+		for (const row of groupRows) {
 			if (row._id === canonical._id) continue;
 			await ctx.db.delete(row._id);
-			queueRowsDeleted += 1;
+			rowsDeleted += 1;
 		}
 	}
+	return { rowsDeleted, rowsPatched };
+}
 
-	let creditRowsDeleted = 0;
-	let creditRowsPatched = 0;
-	const creditRows = await ctx.db.query('creditCache').withIndex('by_nextRefreshAt').collect();
-	const creditGroups = new Map<string, Doc<'creditCache'>[]>();
-	for (const row of creditRows) {
+export async function getCreditCacheRepairPageHandler(
+	ctx: QueryCtx,
+	args: { limit?: number; cursor?: string | null }
+): Promise<{ items: RepairCreditCachePageItem[]; cursor: string | null; isDone: boolean }> {
+	const pageSize = normalizePageSize(args.limit, 250, 500);
+	const page = await ctx.db
+		.query('creditCache')
+		.withIndex('by_mediaType_tmdbId_source_seasonKey')
+		.order('asc')
+		.paginate({
+			numItems: pageSize,
+			cursor: args.cursor ?? null
+		});
+	return {
+		items: page.page.map((row) => ({
+			rowId: row._id,
+			key: buildCreditCacheKey(row)
+		})),
+		cursor: page.continueCursor,
+		isDone: page.isDone
+	};
+}
+
+export async function repairCreditCachePageHandler(
+	ctx: MutationCtx,
+	args: { rowIds: Id<'creditCache'>[] }
+): Promise<{ rowsDeleted: number; rowsPatched: number }> {
+	let rowsDeleted = 0;
+	let rowsPatched = 0;
+	const uniqueIds = uniqueRowIds(args.rowIds);
+	const rows = (await Promise.all(uniqueIds.map((rowId) => ctx.db.get(rowId)))).filter(
+		(row): row is Doc<'creditCache'> => row !== null
+	);
+	const groups = new Map<string, Doc<'creditCache'>[]>();
+	for (const row of rows) {
 		const key = buildCreditCacheKey(row);
-		const existing = creditGroups.get(key) ?? [];
+		const existing = groups.get(key) ?? [];
 		existing.push(row);
-		creditGroups.set(key, existing);
+		groups.set(key, existing);
 	}
-	for (const rows of creditGroups.values()) {
-		if (rows.length === 0) continue;
+	for (const groupRows of groups.values()) {
+		if (groupRows.length === 0) continue;
 		let canonical: Doc<'creditCache'> | null = null;
-		for (const row of rows) {
+		for (const row of groupRows) {
 			if (isBetterCreditCacheCanonicalCandidate(row, canonical)) {
 				canonical = row;
 			}
 		}
 		if (!canonical) continue;
-		const latestFetchedAt = maxNullableNumber(...rows.map((row) => row.fetchedAt)) ?? canonical.fetchedAt;
+		const latestFetchedAt =
+			maxNullableNumber(...groupRows.map((row) => row.fetchedAt)) ?? canonical.fetchedAt;
 		const earliestNextRefreshAt =
-			minNullableNumber(...rows.map((row) => row.nextRefreshAt)) ?? canonical.nextRefreshAt;
-		if (canonical.fetchedAt !== latestFetchedAt || canonical.nextRefreshAt !== earliestNextRefreshAt) {
+			minNullableNumber(...groupRows.map((row) => row.nextRefreshAt)) ?? canonical.nextRefreshAt;
+		if (
+			canonical.fetchedAt !== latestFetchedAt ||
+			canonical.nextRefreshAt !== earliestNextRefreshAt
+		) {
 			await ctx.db.patch(canonical._id, {
 				fetchedAt: latestFetchedAt,
 				nextRefreshAt: earliestNextRefreshAt
 			});
-			creditRowsPatched += 1;
+			rowsPatched += 1;
 		}
-		for (const row of rows) {
+		for (const row of groupRows) {
 			if (row._id === canonical._id) continue;
 			await ctx.db.delete(row._id);
-			creditRowsDeleted += 1;
+			rowsDeleted += 1;
 		}
 	}
-
-	return {
-		queueRowsDeleted,
-		queueRowsPatched,
-		creditRowsDeleted,
-		creditRowsPatched
-	};
+	return { rowsDeleted, rowsPatched };
 }

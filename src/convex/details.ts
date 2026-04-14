@@ -518,14 +518,6 @@ export const get = query({
 				now,
 				DETAIL_SCHEMA_VERSION
 			);
-			const creditsPayload = await resolveCreditsPayload(ctx, {
-				mediaType: 'movie',
-				tmdbId: movieTmdbId,
-				previewOnly: true
-			});
-			const creditsHardRefreshNeeded = creditsPayload.coverage === null || creditsPayload.isExpired;
-			const creditsNeedRefresh = creditsHardRefreshNeeded;
-
 			return {
 				mediaType: 'movie' as const,
 				id: movieTmdbId,
@@ -541,13 +533,13 @@ export const get = query({
 				tvLastEpisodeToAir: null,
 				tvNextEpisodeToAir: null,
 				credits: {
-					cast: creditsPayload.cast,
-					crew: creditsPayload.crew
+					cast: [],
+					crew: []
 				},
 				headerContext,
 				nextRefreshAt: movie.nextRefreshAt ?? null,
-				hardStale: refreshDecision.hardStale || creditsHardRefreshNeeded,
-				isStale: refreshDecision.needsRefresh || creditsNeedRefresh
+				hardStale: refreshDecision.hardStale,
+				isStale: refreshDecision.needsRefresh
 			};
 		}
 
@@ -610,14 +602,6 @@ export const get = query({
 			now,
 			DETAIL_SCHEMA_VERSION
 		);
-		const creditsPayload = await resolveCreditsPayload(ctx, {
-			mediaType: 'tv',
-			tmdbId: tvShowTmdbId,
-			previewOnly: true
-		});
-		const creditsHardRefreshNeeded = creditsPayload.coverage === null || creditsPayload.isExpired;
-		const creditsNeedRefresh = creditsHardRefreshNeeded;
-
 		return {
 			mediaType: 'tv' as const,
 			id: tvShowTmdbId,
@@ -644,16 +628,16 @@ export const get = query({
 					: {
 							...tvShow.nextEpisodeToAir,
 							displaySeasonNumber: mappedNextEpisodeToAir?.displaySeasonNumber ?? null,
-							displayEpisodeNumber: mappedNextEpisodeToAir?.displayEpisodeNumber ?? null
+						displayEpisodeNumber: mappedNextEpisodeToAir?.displayEpisodeNumber ?? null
 						},
 			credits: {
-				cast: creditsPayload.cast,
-				crew: creditsPayload.crew
+				cast: [],
+				crew: []
 			},
 			headerContext,
 			nextRefreshAt: tvShow.nextRefreshAt ?? null,
-			hardStale: refreshDecision.hardStale || creditsHardRefreshNeeded,
-			isStale: refreshDecision.needsRefresh || creditsNeedRefresh
+			hardStale: refreshDecision.hardStale,
+			isStale: refreshDecision.needsRefresh
 		};
 	}
 });

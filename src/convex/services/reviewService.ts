@@ -9,7 +9,6 @@ import type {
 } from '../types/reviewTypes';
 import type { MediaSource } from '../utils/mediaLookup';
 
-import { internal } from '../_generated/api';
 import { getMovieBySource, getTVShowBySource } from '../utils/mediaLookup';
 import {
 	ensureDetailRefreshQueueRow,
@@ -18,6 +17,7 @@ import {
 import {
 	DETAIL_REFRESH_QUEUE_INTERACTIVE_PRIORITY
 } from './detailsRefresh/constants';
+import { scheduleDetailRefreshWorkerIfNeededHandler } from './detailsRefresh/queueHandlers';
 const DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS = 20 * 60_000;
 
 type HydratableMedia = {
@@ -233,8 +233,10 @@ export async function scheduleDetailHydrationForTMDB(
 			staleRunningAfterMs: DETAIL_REFRESH_QUEUE_RUNNING_STALE_MS
 		});
 		if (request.queued) {
-			await ctx.scheduler.runAfter(0, internal.detailsRefresh.processDetailRefreshQueue, {
-				maxJobs: 3
+			await scheduleDetailRefreshWorkerIfNeededHandler(ctx, {
+				now,
+				maxJobs: 1,
+				preferredRowId: request.rowId
 			});
 		}
 	} catch {
